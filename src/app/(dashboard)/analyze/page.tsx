@@ -423,10 +423,6 @@ export default function AnalyzePDFPage() {
         )}
       </div>
 
-      {/* Pipeline log panel */}
-      {pipelineLog && (
-        <PipelinePanel log={pipelineLog} rawMarkdown={rawMarkdown} />
-      )}
 
       {/* Extracted preview & Save option */}
       {subjects.length > 0 && (

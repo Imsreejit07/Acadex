@@ -378,10 +378,6 @@ export default function OnboardingPage() {
             </div>
           </div>
 
-          {/* Pipeline Transparency Panel */}
-          {pipelineLog && (
-            <PipelinePanel log={pipelineLog} rawMarkdown={rawMarkdown} />
-          )}
 
           {/* Minimal success summary if no pipeline log yet */}
           {aiData && !pipelineLog && (
