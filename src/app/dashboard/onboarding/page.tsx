@@ -419,7 +419,7 @@ export default function OnboardingPage() {
           <div className="text-center space-y-1">
             <h3 className="text-lg font-bold text-foreground">Parsing Timetable</h3>
             <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-              Running OCR → Deterministic parser → AI ({process.env.NEXT_PUBLIC_AI_MODEL || 'Gemini'})...
+              Running OCR → Deterministic parser → AI (Ollama)...
             </p>
           </div>
         </div>
