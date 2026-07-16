@@ -10,25 +10,10 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "10mb",
     },
   },
+  output: "export",
   images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**.supabase.co",
-      },
-    ],
+    unoptimized: true,
   },
-  headers: async () => [
-    {
-      source: "/manifest.json",
-      headers: [
-        {
-          key: "Content-Type",
-          value: "application/manifest+json",
-        },
-      ],
-    },
-  ],
 };
 
 export default nextConfig;

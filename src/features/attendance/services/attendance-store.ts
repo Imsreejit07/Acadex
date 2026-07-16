@@ -147,8 +147,51 @@ const defaultData: Required<Pick<OnboardingData, 'semesterName' | 'academicYear'
 
 const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 
+// Global flag to indicate if we've initialized SQLite state
+let sqliteInitialized = false;
+
+// Async function to load state from SQLite and sync to localStorage
+export async function initializeSqliteState() {
+  if (typeof window === 'undefined' || sqliteInitialized) return;
+  
+  // Check if we are running in Tauri
+  const isTauri = (window as any).__TAURI_INTERNALS__ !== undefined || (window as any).__TAURI__ !== undefined;
+  if (!isTauri) return;
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    
+    const keys = [
+      ONBOARDING_KEY,
+      ATTENDANCE_KEY,
+      'academic_events',
+      'holidays_list',
+      'extra_classes',
+      'rescheduled_classes',
+      'attendance_credits',
+    ];
+
+    for (const key of keys) {
+      const val = await invoke<string | null>('load_local_state', { key });
+      if (val !== null && val !== undefined) {
+        window.localStorage.setItem(key, val);
+      }
+    }
+    
+    sqliteInitialized = true;
+    window.dispatchEvent(new Event(STORE_EVENT));
+  } catch (err) {
+    console.error('Failed to initialize SQLite state:', err);
+  }
+}
+
 function readJson<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
+
+  // Trigger async load once on first read if not yet initialized
+  if (!sqliteInitialized) {
+    initializeSqliteState();
+  }
 
   const value = window.localStorage.getItem(key);
   if (!value) return fallback;
@@ -161,8 +204,21 @@ function readJson<T>(key: string, fallback: T): T {
 }
 
 function writeJson(key: string, value: unknown) {
-  window.localStorage.setItem(key, JSON.stringify(value));
+  const jsonStr = JSON.stringify(value);
+  window.localStorage.setItem(key, jsonStr);
   window.dispatchEvent(new Event(STORE_EVENT));
+
+  // Sync to SQLite asynchronously if running in Tauri
+  const isTauri = typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ !== undefined || (window as any).__TAURI__ !== undefined);
+  if (isTauri) {
+    import('@tauri-apps/api/core').then(({ invoke }) => {
+      invoke('save_local_state', { key, value: jsonStr }).catch((err) => {
+        console.error(`Failed to save state to SQLite for key ${key}:`, err);
+      });
+    }).catch(err => {
+      console.error('Failed to load Tauri core for save_local_state:', err);
+    });
+  }
 }
 
 function subscribe(callback: () => void) {

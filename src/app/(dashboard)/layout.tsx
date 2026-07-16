@@ -23,7 +23,8 @@ import {
   Moon
 } from 'lucide-react';
 
-import { useAttendanceStore } from '@/features/attendance/services/attendance-store';
+import { useAttendanceStore, initializeSqliteState } from '@/features/attendance/services/attendance-store';
+
 
 const NAV_ITEMS = [
   { href: '/dashboard',  label: 'Dashboard',        icon: LayoutDashboard },
@@ -175,6 +176,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
 
   useEffect(() => {
+    initializeSqliteState();
     const saved = localStorage.getItem('theme') as 'light' | 'dark' | null;
     const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const initial = saved || (systemDark ? 'dark' : 'light');

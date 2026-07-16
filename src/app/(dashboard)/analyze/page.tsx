@@ -215,8 +215,64 @@ export default function AnalyzePDFPage() {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement> | File) => {
-    const file = event instanceof File ? event : event.target.files?.[0];
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement> | File | React.MouseEvent) => {
+    const isTauri = typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ !== undefined || (window as any).__TAURI__ !== undefined);
+
+    if (isTauri) {
+      if (event && 'preventDefault' in event) event.preventDefault();
+      setIsUploading(true);
+      setPipelineLog(null);
+      setRawMarkdown(undefined);
+      setSubjects([]);
+      setEntries([]);
+      setManualOverrides({});
+
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const selectedModel = localStorage.getItem('selected_ollama_model') || 'qwen2.5:14b';
+        
+        // Pick and parse the file natively
+        const rawJson = await invoke<string>('parse_timetable_desktop', { selectedModel });
+        const parsed = JSON.parse(rawJson) as { subjects?: any[]; timetableEntries?: any[] };
+        
+        // Initialize extracted subjects, default to Theory Only (hasLab = false)
+        const parsedSubjects: SubjectItem[] = (parsed.subjects || []).map((s: any, idx: number) => ({
+          id: Math.random().toString(36).substr(2, 9),
+          name: s.name,
+          code: s.code || '',
+          faculty: s.faculty || '',
+          credits: s.credits ?? null,
+          color: s.color || COLOR_PALETTE[idx % COLOR_PALETTE.length],
+          hasLab: false, // Default to Theory Only!
+          theoryTarget: s.theoryTarget ?? 75,
+          labTarget: s.labTarget ?? 75,
+        }));
+
+        // Initialize extracted slots
+        const parsedEntries: TimetableEntryItem[] = (parsed.timetableEntries || []).map((e: any) => ({
+          id: Math.random().toString(36).substr(2, 9),
+          day: e.day,
+          subjectName: e.subjectName,
+          startTime: e.startTime,
+          endTime: e.endTime,
+        }));
+
+        setSubjects(parsedSubjects);
+        setEntries(parsedEntries);
+        setManualOverrides({});
+        setUploadedFileName('timetable.pdf');
+        toast.success(`Successfully extracted ${parsedSubjects.length} subjects & ${parsedEntries.length} entries!`);
+      } catch (error: any) {
+        console.error(error);
+        toast.error(error?.toString() || 'Failed to parse timetable via Ollama.');
+        setUploadedFileName(null);
+      } finally {
+        setIsUploading(false);
+      }
+      return;
+    }
+
+    const file = event instanceof File ? event : (event as React.ChangeEvent<HTMLInputElement>).target.files?.[0];
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith('.pdf')) {
@@ -386,7 +442,14 @@ export default function AnalyzePDFPage() {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={(e) => {
+          const isTauri = typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ !== undefined || (window as any).__TAURI__ !== undefined);
+          if (isTauri) {
+            handleFileUpload(e as any);
+          } else {
+            fileInputRef.current?.click();
+          }
+        }}
         className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-10 cursor-pointer bg-card transition-all duration-200 ${
           dragOver
             ? 'border-primary bg-primary/5'
@@ -400,6 +463,10 @@ export default function AnalyzePDFPage() {
           className="hidden"
           onChange={handleFileUpload}
           disabled={isUploading}
+          onClick={(e) => {
+            const isTauri = typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ !== undefined || (window as any).__TAURI__ !== undefined);
+            if (isTauri) e.stopPropagation();
+          }}
         />
         {isUploading ? (
           <div className="flex flex-col items-center gap-2">
