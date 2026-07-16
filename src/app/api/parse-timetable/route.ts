@@ -5,43 +5,18 @@ import * as path from 'path';
 
 /**
  * Configuration for the LLM-backed parser.
- * Uses the local proxy (OpenAI-compatible) when available, falls back to deterministic parsing.
+ * Uses local Ollama when available, then a local proxy, then Gemini.
  */
 const LLM_CONFIG = (() => {
   const ollamaBaseUrl = process.env.OLLAMA_BASE_URL;
   const ollamaModel = process.env.OLLAMA_MODEL;
-  const proxyUrl = process.env.LOCAL_PROXY_URL;
-  const proxyKey = process.env.LOCAL_PROXY_KEY;
-  const geminiKeys = parseGeminiApiKeys();
-  const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
-  const allowLocalLlmInProduction = process.env.ALLOW_LOCAL_LLM_IN_PRODUCTION === 'true';
-  const canUseLocalBackends = !isProduction || allowLocalLlmInProduction;
 
-  // Prioritize local proxy (unified API key) if configured
-  if (proxyUrl && proxyKey && (canUseLocalBackends || !isLoopbackUrl(proxyUrl))) {
-    return {
-      type: 'proxy' as const,
-      baseUrl: proxyUrl.replace(/\/+$/, ''),
-      apiKey: proxyKey,
-      model: 'auto',
-    };
-  }
-
-  // Fall back to local Ollama when configured. This keeps timetable parsing fully local.
-  if (ollamaBaseUrl && ollamaModel && (canUseLocalBackends || !isLoopbackUrl(ollamaBaseUrl))) {
+  // Ollama is the only LLM model config allowed.
+  if (ollamaBaseUrl && ollamaModel) {
     return {
       type: 'ollama' as const,
       baseUrl: ollamaBaseUrl.replace(/\/+$/, ''),
       model: ollamaModel,
-    };
-  }
-
-  // Next try direct Gemini API.
-  if (geminiKeys.length > 0) {
-    return {
-      type: 'gemini' as const,
-      apiKeys: geminiKeys,
-      model: 'gemini-2.5-flash',
     };
   }
 
@@ -157,73 +132,6 @@ async function fetchWithTimeout(url: string, options: RequestInit & { timeout?: 
     clearTimeout(timeoutId);
   }
 }
-
-function parseGeminiApiKeys(): string[] {
-  const multiKeyValue = process.env.GEMINI_API_KEYS?.trim();
-  const rawKeys = multiKeyValue || process.env.GEMINI_API_KEY || '';
-
-  return rawKeys
-    .split(',')
-    .map(key => key.trim())
-    .filter(Boolean);
-}
-
-function isLoopbackUrl(value: string): boolean {
-  try {
-    const hostname = new URL(value).hostname.toLowerCase();
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-  } catch {
-    return false;
-  }
-}
-
-function rotateFromRandomStart<T>(items: T[]): T[] {
-  if (items.length <= 1) return items;
-  const start = Math.floor(Math.random() * items.length);
-  return [...items.slice(start), ...items.slice(0, start)];
-}
-
-async function fetchGeminiWithFailover(
-  model: string,
-  apiKeys: string[],
-  body: unknown,
-  timeout: number,
-  context: string
-): Promise<Response> {
-  const orderedKeys = rotateFromRandomStart(apiKeys);
-  let lastError: Error | null = null;
-
-  for (let index = 0; index < orderedKeys.length; index++) {
-    const key = orderedKeys[index];
-    const keyLabel = `${index + 1}/${orderedKeys.length}`;
-
-    try {
-      const response = await fetchWithTimeout(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          timeout,
-        }
-      );
-
-      if (response.ok) {
-        return response;
-      }
-
-      const text = await response.text().catch(() => 'unknown error');
-      lastError = new Error(`Gemini HTTP ${response.status}: ${text}`);
-      console.warn(`Gemini ${context} failed with key ${keyLabel}; trying next key if available.`, lastError.message);
-    } catch (error: unknown) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.warn(`Gemini ${context} threw with key ${keyLabel}; trying next key if available.`, lastError.message);
-    }
-  }
-
-  throw lastError || new Error(`Gemini ${context} failed: no API keys configured`);
-}
-
 // ─── Pipeline Log Types ────────────────────────────────────────────────────
 
 type PipelineStep = {
@@ -252,34 +160,13 @@ type PipelineLog = {
 };
 
 function buildParserDescription(): { type: string; model: string; reason: string } {
-  const geminiKeyCount = parseGeminiApiKeys().length;
   const hasOllama = !!(process.env.OLLAMA_BASE_URL && process.env.OLLAMA_MODEL);
-  const hasProxy = !!(process.env.LOCAL_PROXY_URL && process.env.LOCAL_PROXY_KEY);
-  const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
-  const allowLocalLlmInProduction = process.env.ALLOW_LOCAL_LLM_IN_PRODUCTION === 'true';
-  const proxyIsLoopback = process.env.LOCAL_PROXY_URL ? isLoopbackUrl(process.env.LOCAL_PROXY_URL) : false;
-  const ollamaIsLoopback = process.env.OLLAMA_BASE_URL ? isLoopbackUrl(process.env.OLLAMA_BASE_URL) : false;
 
-  if (hasProxy && (!isProduction || allowLocalLlmInProduction || !proxyIsLoopback)) {
-    return {
-      type: 'proxy',
-      model: 'auto',
-      reason: 'LOCAL_PROXY_URL + LOCAL_PROXY_KEY are set — using local proxy (highest priority)',
-    };
-  }
-  if (hasOllama && (!isProduction || allowLocalLlmInProduction || !ollamaIsLoopback)) {
+  if (hasOllama) {
     return {
       type: 'ollama',
       model: process.env.OLLAMA_MODEL || 'unknown',
       reason: 'OLLAMA_BASE_URL + OLLAMA_MODEL are set',
-    };
-  }
-  if (geminiKeyCount > 0) {
-    return {
-      type: 'gemini',
-      model: 'gemini-2.5-flash',
-      reason: `${geminiKeyCount} Gemini API key(s) configured` +
-        (isProduction && (proxyIsLoopback || ollamaIsLoopback) ? ' — skipped localhost-only backends in production' : ''),
     };
   }
   return {
@@ -401,58 +288,6 @@ async function testLlmConnection(): Promise<{ success: boolean; parserType: stri
   const FETCH_TIMEOUT = 10000;
 
   try {
-    if (LLM_CONFIG.type === 'proxy') {
-      const response = await fetchWithTimeout(`${LLM_CONFIG.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${LLM_CONFIG.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: LLM_CONFIG.model,
-          messages: [{ role: 'user', content: 'Say "Connection OK" in exactly 2 words' }],
-          max_tokens: 10,
-        }),
-        timeout: FETCH_TIMEOUT,
-      });
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => 'unknown error');
-        throw new Error(`Proxy HTTP ${response.status}: ${text}`);
-      }
-
-      const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-      const content = data.choices?.[0]?.message?.content?.trim() || 'No response';
-      return {
-        success: true,
-        parserType: 'proxy',
-        model: LLM_CONFIG.model,
-        message: `Successfully connected to proxy. AI replied: "${content}"`,
-      };
-    }
-
-    if (LLM_CONFIG.type === 'gemini') {
-      const response = await fetchGeminiWithFailover(
-        LLM_CONFIG.model,
-        LLM_CONFIG.apiKeys,
-        {
-          contents: [{ parts: [{ text: 'Say "Connection OK" in exactly 2 words' }] }],
-          generationConfig: { maxOutputTokens: 10 },
-        },
-        FETCH_TIMEOUT,
-        'connection test'
-      );
-
-      const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
-      const content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'No response';
-      return {
-        success: true,
-        parserType: 'gemini',
-        model: LLM_CONFIG.model,
-        message: `Successfully connected to Gemini. AI replied: "${content}"`,
-      };
-    }
-
     if (LLM_CONFIG.type === 'ollama') {
       const response = await fetchWithTimeout(`${LLM_CONFIG.baseUrl}/api/chat`, {
         method: 'POST',
@@ -812,68 +647,7 @@ async function parseWithLLM(markdownContent: string): Promise<ParsedTimetable> {
     return normalizeParsedTimetable(parsed, `Parsed using local Ollama (${LLM_CONFIG.model})`);
   }
 
-  if (LLM_CONFIG.type === 'proxy') {
-    const response = await fetchWithTimeout(`${LLM_CONFIG.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${LLM_CONFIG.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: LLM_CONFIG.model,
-        messages: [
-          { role: 'system', content: TIMETABLE_SYSTEM_PROMPT },
-          { role: 'user', content: userMessage },
-        ],
-        temperature: 0,
-        max_tokens: 4096,
-        response_format: { type: 'json_object' },
-      }),
-      timeout: FETCH_TIMEOUT,
-    });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => 'unknown');
-      throw new Error(`LLM proxy returned ${response.status}: ${errText}`);
-    }
-
-    const data = await response.json();
-    const rawText = data?.choices?.[0]?.message?.content;
-
-    if (!rawText) {
-      throw new Error('LLM returned empty response');
-    }
-
-    const parsed = parseLLMJson(rawText);
-    return normalizeParsedTimetable(parsed, `Parsed using AI (${LLM_CONFIG.model}) via proxy`);
-  } else {
-    // Direct Gemini API
-    const response = await fetchGeminiWithFailover(
-      LLM_CONFIG.model,
-      LLM_CONFIG.apiKeys,
-      {
-        contents: [{
-          parts: [{ text: `${TIMETABLE_SYSTEM_PROMPT}\n\n${userMessage}` }],
-        }],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 4096,
-        },
-      },
-      FETCH_TIMEOUT,
-      'timetable extraction'
-    );
-
-    const data = await response.json();
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!rawText) {
-      throw new Error('Gemini returned empty response');
-    }
-
-    const parsed = parseLLMJson(rawText);
-    return normalizeParsedTimetable(parsed, `Parsed using AI (${LLM_CONFIG.model}) via Gemini`);
-  }
+  throw new Error('Unsupported LLM configuration');
 }
 
 function parseLLMJson(raw: string): unknown {
