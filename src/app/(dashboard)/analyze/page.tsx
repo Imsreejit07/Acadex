@@ -377,7 +377,7 @@ export default function AnalyzePDFPage() {
       <div>
         <h1 className="text-2xl font-semibold text-foreground">PDF AI Import</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Scan and parse university schedules dynamically into your AcademicOS calendar.
+          Scan and parse university schedules dynamically into your Acadex calendar.
         </p>
       </div>
 

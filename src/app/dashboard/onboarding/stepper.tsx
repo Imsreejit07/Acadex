@@ -260,7 +260,7 @@ function Step1({
           value={stepData.userName || ''}
           onChange={(e) => onInputChange('userName', e.target.value)}
           placeholder="e.g., Sreejit Das"
-          className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-colors"
           required
         />
       </div>
@@ -272,7 +272,7 @@ function Step1({
           value={stepData.semesterName || ''}
           onChange={(e) => onInputChange('semesterName', e.target.value)}
           placeholder="e.g., Fall 2024, Spring 2025, Semester 5"
-          className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-colors"
           required
         />
       </div>
@@ -285,7 +285,7 @@ function Step1({
             value={stepData.academicYear || ''}
             onChange={(e) => onInputChange('academicYear', e.target.value)}
             placeholder="e.g., 2024-2025"
-            className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-colors"
           />
         </div>
         <div>
@@ -294,7 +294,7 @@ function Step1({
             type="date"
             value={stepData.startDate || ''}
             onChange={(e) => onInputChange('startDate', e.target.value)}
-            className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-slate-100 focus:outline-none"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary transition-colors"
           />
         </div>
       </div>
@@ -390,7 +390,7 @@ function Step2({
             }
           }}
           placeholder="e.g. Calculus, Physics, Data Structures (or comma-separated)"
-          className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-colors"
         />
       </div>
       
@@ -402,7 +402,7 @@ function Step2({
             value={tempSubject.code}
             onChange={(e) => handleTempChange('code', e.target.value)}
             placeholder="e.g., MATH101"
-            className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-colors"
           />
         </div>
         <div>
@@ -412,7 +412,7 @@ function Step2({
             value={tempSubject.faculty}
             onChange={(e) => handleTempChange('faculty', e.target.value)}
             placeholder="e.g., Dr. Smith"
-            className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-colors"
           />
         </div>
       </div>
@@ -426,7 +426,7 @@ function Step2({
             onChange={(e) => handleTempChange('credits', e.target.value === '' ? null : parseInt(e.target.value))}
             min="1"
             max="10"
-            className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-colors"
           />
         </div>
         <div className="flex items-center space-x-2 pb-2">
@@ -526,7 +526,7 @@ function Step2({
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <label className="flex items-center space-x-1.5 cursor-pointer select-none border border-white/5 bg-slate-900/60 rounded px-2 py-1.5 text-[11px] text-slate-400 hover:text-white transition-colors">
+                  <label className="flex items-center space-x-1.5 cursor-pointer select-none border border-border bg-secondary/60 rounded px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                     <input
                       type="checkbox"
                       checked={subject.hasLab}
@@ -687,8 +687,8 @@ function Step3({
                 }}
                 className={`px-4 py-2 text-sm font-medium rounded-lg border transition-all ${
                   isSelected 
-                    ? 'bg-primary text-primary-foreground border-primary scale-105' 
-                    : 'bg-background border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    ? 'bg-primary text-primary-foreground border-primary scale-105 shadow-sm' 
+                    : 'bg-card border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground'
                 }`}
               >
                 {d.label}
@@ -703,7 +703,7 @@ function Step3({
         <select
           value={tempEntry.subjectName}
           onChange={(e) => handleTempEntryChange('subjectName', e.target.value)}
-          className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-slate-100"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary transition-colors"
         >
           <option value="">-- Select Subject --</option>
           {availableSubjects.map((subject: string) => (
@@ -719,7 +719,7 @@ function Step3({
         <select
           value={tempEntry.componentType}
           onChange={(e) => handleTempEntryChange('componentType', e.target.value as any)}
-          className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-slate-100 focus:outline-none"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary transition-colors"
         >
           <option value="THEORY">Theory</option>
           <option value="LAB">Lab</option>
@@ -737,7 +737,7 @@ function Step3({
             type="time"
             value={tempEntry.startTime}
             onChange={(e) => handleTempEntryChange('startTime', e.target.value)}
-            className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-slate-100"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary transition-colors"
           />
         </div>
         <div>
@@ -746,7 +746,7 @@ function Step3({
             type="time"
             value={tempEntry.endTime}
             onChange={(e) => handleTempEntryChange('endTime', e.target.value)}
-            className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-slate-100"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary transition-colors"
           />
         </div>
       </div>
@@ -793,7 +793,7 @@ function Step3({
                               <select
                                 value={editFields.day}
                                 onChange={(e) => handleEditFieldChange('day', e.target.value)}
-                                className="w-full max-w-[85px] rounded border border-white/10 bg-slate-900 px-1.5 py-1 text-xs text-slate-100 focus:outline-none"
+                                className="w-full max-w-[85px] rounded border border-border bg-card px-1.5 py-1 text-xs text-foreground focus:outline-none"
                               >
                                 {daysOfWeek.map(d => (
                                   <option key={d.value} value={d.value}>{d.label}</option>
@@ -805,7 +805,7 @@ function Step3({
                               <select
                                 value={editFields.subjectName}
                                 onChange={(e) => handleEditFieldChange('subjectName', e.target.value)}
-                                className="w-full max-w-[125px] rounded border border-white/10 bg-slate-900 px-1.5 py-1 text-xs text-slate-100 focus:outline-none"
+                                className="w-full max-w-[125px] rounded border border-border bg-card px-1.5 py-1 text-xs text-foreground focus:outline-none"
                               >
                                 {availableSubjects.map((subj: string) => (
                                   <option key={subj} value={subj}>{subj}</option>
@@ -817,7 +817,7 @@ function Step3({
                               <select
                                 value={editFields.componentType}
                                 onChange={(e) => handleEditFieldChange('componentType', e.target.value)}
-                                className="w-full max-w-[105px] rounded border border-white/10 bg-slate-900 px-1.5 py-1 text-xs text-slate-100 focus:outline-none"
+                                className="w-full max-w-[105px] rounded border border-border bg-card px-1.5 py-1 text-xs text-foreground focus:outline-none"
                               >
                                 <option value="THEORY">THEORY</option>
                                 <option value="LAB">LAB</option>
@@ -834,14 +834,14 @@ function Step3({
                                   type="time"
                                   value={editFields.startTime}
                                   onChange={(e) => handleEditFieldChange('startTime', e.target.value)}
-                                  className="w-[72px] rounded border border-white/10 bg-slate-900 px-1 py-0.5 text-xs text-slate-100 focus:outline-none"
+                                  className="w-[72px] rounded border border-border bg-card px-1 py-0.5 text-xs text-foreground focus:outline-none"
                                 />
                                 <span className="text-slate-500 text-xs">-</span>
                                 <input
                                   type="time"
                                   value={editFields.endTime}
                                   onChange={(e) => handleEditFieldChange('endTime', e.target.value)}
-                                  className="w-[72px] rounded border border-white/10 bg-slate-900 px-1 py-0.5 text-xs text-slate-100 focus:outline-none"
+                                  className="w-[72px] rounded border border-border bg-card px-1 py-0.5 text-xs text-foreground focus:outline-none"
                                 />
                               </div>
                             </td>
@@ -937,7 +937,7 @@ function Step4({ onFinish }: { onFinish: () => void }) {
         <Check className="h-8 w-8" />
       </div>
       
-      <h1 className="text-2xl font-bold">Welcome to AcademicOS!</h1>
+      <h1 className="text-2xl font-bold">Welcome to Acadex!</h1>
       <p className="text-lg text-muted-foreground">
         Your academic journey tracking system is ready to use.
       </p>

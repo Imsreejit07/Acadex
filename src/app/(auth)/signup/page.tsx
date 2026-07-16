@@ -81,7 +81,7 @@ export default function SignupPage() {
             <GraduationCap className="text-foreground" size={20} />
           </div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">
-            AcademicOS
+            Acadex
           </h1>
           <p className="text-xs text-muted-foreground">Create your account to get started</p>
         </div>

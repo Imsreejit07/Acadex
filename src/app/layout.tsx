@@ -15,13 +15,13 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AcademicOS - Academic Management Platform",
-  description: "Your personal academic operating system. Track attendance, manage semesters, and never maintain Excel sheets again.",
+  title: "Acadex - Academic Management Platform",
+  description: "Advanced attendance analyzer and automated scheduler",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "AcademicOS",
+    title: "Acadex",
   },
 };
 
@@ -30,7 +30,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#0a0e17",
+  themeColor: "#000000",
 };
 
 export default function RootLayout({

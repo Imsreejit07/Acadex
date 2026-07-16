@@ -224,7 +224,7 @@ export default function DashboardPage() {
           <Sparkles className="h-8 w-8" />
         </div>
         <div className="space-y-2">
-          <h1 className="text-2xl font-bold text-foreground">Welcome to AcademicOS</h1>
+          <h1 className="text-2xl font-bold text-foreground">Welcome to Acadex</h1>
           <p className="text-sm text-muted-foreground">
             Upload your timetable to configure your classes.
           </p>

@@ -1,7 +1,7 @@
 {
-  "name": "AcademicOS",
-  "short_name": "AcademicOS",
-  "description": "Your personal academic operating system. Track attendance, manage semesters, and never maintain Excel sheets again.",
+  "name": "Acadex",
+  "short_name": "Acadex",
+  "description": "Your personal academic co-pilot.",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#0a0a0a",

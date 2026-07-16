@@ -200,12 +200,12 @@ export default function SemesterPage() {
         {/* Left Column: Form Section */}
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
           {/* Tab selector */}
-          <div className="flex flex-wrap gap-1 bg-secondary p-1 rounded-xl">
+          <div className="grid grid-cols-2 gap-1 bg-secondary p-1 rounded-xl">
             {(['HOLIDAYS', 'EXTRA_CLASSES', 'RESCHEDULE', 'CREDITS'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-1.5 px-2.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
+                className={`py-1.5 px-2 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all text-center ${
                   activeTab === tab 
                     ? 'bg-card text-foreground shadow-sm' 
                     : 'text-muted-foreground hover:text-foreground'

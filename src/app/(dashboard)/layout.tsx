@@ -90,7 +90,7 @@ function Sidebar({
             >
               <GraduationCap size={15} className="text-foreground" />
             </div>
-            <span className="font-bold text-foreground text-sm tracking-wide">AcademicOS</span>
+            <span className="font-bold text-foreground text-sm tracking-wide">Acadex</span>
           </div>
           <button
             onClick={onClose}
@@ -226,7 +226,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </button>
             {/* Breadcrumb */}
             <div className="hidden sm:flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">AcademicOS</span>
+              <span className="text-muted-foreground">Acadex</span>
               <ChevronRight size={13} className="text-muted-foreground/60" />
               <span className="text-foreground font-semibold">{activeLabel}</span>
             </div>
