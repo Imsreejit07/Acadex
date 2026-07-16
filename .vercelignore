@@ -1,0 +1,12 @@
+node_modules
+.next
+.venv-marker
+opendataloader-pdf
+marker_service
+scratch
+figma UI
+.venv
+venv
+__pycache__
+*.pyc
+.git
