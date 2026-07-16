@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 /**
@@ -279,6 +280,14 @@ function countMarkdownTableRows(md: string): number {
   return md.split('\n').filter(line => line.includes('|') && line.startsWith('|')).length;
 }
 
+function getWritableScratchDir(...segments: string[]): string {
+  const baseDir = process.env.VERCEL === '1'
+    ? os.tmpdir()
+    : path.join(process.cwd(), 'scratch');
+
+  return path.join(baseDir, ...segments);
+}
+
 type PdfTextItem = {
   str?: string;
   transform?: number[];
@@ -537,7 +546,7 @@ export async function POST(request: Request) {
     // ── Step 2: Write to disk ──────────────────────────────────────────────
     t = Date.now();
     const bytes = await file.arrayBuffer();
-    const tempDir = path.join(process.cwd(), 'scratch', 'uploads');
+    const tempDir = getWritableScratchDir('uploads');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
     tempFilePath = path.join(tempDir, `${Date.now()}_timetable.pdf`);
     fs.writeFileSync(tempFilePath, Buffer.from(bytes));
@@ -545,15 +554,19 @@ export async function POST(request: Request) {
 
     // ── Step 3: OpenDataLoader PDF → Markdown ─────────────────────────────
     t = Date.now();
-    outputDir = path.join(process.cwd(), 'scratch', 'output', `${Date.now()}`);
+    outputDir = getWritableScratchDir('output', `${Date.now()}`);
     fs.mkdirSync(outputDir, { recursive: true });
 
     let mdContent = '';
     try {
       const conversion = await convertPdfToMarkdown(tempFilePath, outputDir);
       mdContent = conversion.markdown;
-      const debugPath = path.join(process.cwd(), 'scratch', 'debug_output.md');
-      fs.writeFileSync(debugPath, mdContent);
+      try {
+        const debugPath = getWritableScratchDir('debug_output.md');
+        fs.writeFileSync(debugPath, mdContent);
+      } catch (debugErr) {
+        console.warn('Could not write debug markdown:', debugErr);
+      }
       log.rawMarkdownChars = mdContent.length;
       log.tableRowsDetected = countMarkdownTableRows(mdContent);
       if (conversion.warning) {
