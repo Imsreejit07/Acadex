@@ -12,7 +12,7 @@ const LLM_CONFIG = (() => {
   const ollamaModel = process.env.OLLAMA_MODEL;
   const proxyUrl = process.env.LOCAL_PROXY_URL;
   const proxyKey = process.env.LOCAL_PROXY_KEY;
-  const geminiKey = process.env.GEMINI_API_KEY;
+  const geminiKeys = parseGeminiApiKeys();
 
   // Prioritize local proxy (unified API key) if configured
   if (proxyUrl && proxyKey) {
@@ -24,21 +24,21 @@ const LLM_CONFIG = (() => {
     };
   }
 
-  // Next try direct Gemini API
-  if (geminiKey) {
-    return {
-      type: 'gemini' as const,
-      apiKey: geminiKey,
-      model: 'gemini-2.5-flash',
-    };
-  }
-
   // Fall back to local Ollama when configured. This keeps timetable parsing fully local.
   if (ollamaBaseUrl && ollamaModel) {
     return {
       type: 'ollama' as const,
       baseUrl: ollamaBaseUrl.replace(/\/+$/, ''),
       model: ollamaModel,
+    };
+  }
+
+  // Next try direct Gemini API.
+  if (geminiKeys.length > 0) {
+    return {
+      type: 'gemini' as const,
+      apiKeys: geminiKeys,
+      model: 'gemini-2.5-flash',
     };
   }
 
@@ -142,6 +142,63 @@ async function fetchWithTimeout(url: string, options: RequestInit & { timeout?: 
   }
 }
 
+function parseGeminiApiKeys(): string[] {
+  const multiKeyValue = process.env.GEMINI_API_KEYS?.trim();
+  const rawKeys = multiKeyValue || process.env.GEMINI_API_KEY || '';
+
+  return rawKeys
+    .split(',')
+    .map(key => key.trim())
+    .filter(Boolean);
+}
+
+function rotateFromRandomStart<T>(items: T[]): T[] {
+  if (items.length <= 1) return items;
+  const start = Math.floor(Math.random() * items.length);
+  return [...items.slice(start), ...items.slice(0, start)];
+}
+
+async function fetchGeminiWithFailover(
+  model: string,
+  apiKeys: string[],
+  body: unknown,
+  timeout: number,
+  context: string
+): Promise<Response> {
+  const orderedKeys = rotateFromRandomStart(apiKeys);
+  let lastError: Error | null = null;
+
+  for (let index = 0; index < orderedKeys.length; index++) {
+    const key = orderedKeys[index];
+    const keyLabel = `${index + 1}/${orderedKeys.length}`;
+
+    try {
+      const response = await fetchWithTimeout(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          timeout,
+        }
+      );
+
+      if (response.ok) {
+        return response;
+      }
+
+      const text = await response.text().catch(() => 'unknown error');
+      lastError = new Error(`Gemini HTTP ${response.status}: ${text}`);
+      console.warn(`Gemini ${context} failed with key ${keyLabel}; trying next key if available.`, lastError.message);
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`Gemini ${context} threw with key ${keyLabel}; trying next key if available.`, lastError.message);
+    }
+  }
+
+  throw lastError || new Error(`Gemini ${context} failed: no API keys configured`);
+}
+
 // ─── Pipeline Log Types ────────────────────────────────────────────────────
 
 type PipelineStep = {
@@ -170,7 +227,7 @@ type PipelineLog = {
 };
 
 function buildParserDescription(): { type: string; model: string; reason: string } {
-  const hasGemini = !!process.env.GEMINI_API_KEY;
+  const geminiKeyCount = parseGeminiApiKeys().length;
   const hasOllama = !!(process.env.OLLAMA_BASE_URL && process.env.OLLAMA_MODEL);
   const hasProxy = !!(process.env.LOCAL_PROXY_URL && process.env.LOCAL_PROXY_KEY);
 
@@ -181,18 +238,18 @@ function buildParserDescription(): { type: string; model: string; reason: string
       reason: 'LOCAL_PROXY_URL + LOCAL_PROXY_KEY are set — using local proxy (highest priority)',
     };
   }
-  if (hasGemini) {
-    return {
-      type: 'gemini',
-      model: 'gemini-2.5-flash',
-      reason: 'GEMINI_API_KEY is set — using Google Gemini',
-    };
-  }
   if (hasOllama) {
     return {
       type: 'ollama',
       model: process.env.OLLAMA_MODEL || 'unknown',
       reason: 'OLLAMA_BASE_URL + OLLAMA_MODEL are set',
+    };
+  }
+  if (geminiKeyCount > 0) {
+    return {
+      type: 'gemini',
+      model: 'gemini-2.5-flash',
+      reason: `${geminiKeyCount} Gemini API key(s) configured`,
     };
   }
   return {
@@ -250,23 +307,16 @@ async function testLlmConnection(): Promise<{ success: boolean; parserType: stri
     }
 
     if (LLM_CONFIG.type === 'gemini') {
-      const response = await fetchWithTimeout(
-        `https://generativelanguage.googleapis.com/v1beta/models/${LLM_CONFIG.model}:generateContent?key=${LLM_CONFIG.apiKey}`,
+      const response = await fetchGeminiWithFailover(
+        LLM_CONFIG.model,
+        LLM_CONFIG.apiKeys,
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: 'Say "Connection OK" in exactly 2 words' }] }],
-            generationConfig: { maxOutputTokens: 10 },
-          }),
-          timeout: FETCH_TIMEOUT,
-        }
+          contents: [{ parts: [{ text: 'Say "Connection OK" in exactly 2 words' }] }],
+          generationConfig: { maxOutputTokens: 10 },
+        },
+        FETCH_TIMEOUT,
+        'connection test'
       );
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => 'unknown error');
-        throw new Error(`Gemini HTTP ${response.status}: ${text}`);
-      }
 
       const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
       const content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'No response';
@@ -458,7 +508,7 @@ export async function POST(request: Request) {
     let aiResult: ParsedTimetable | null = null;
     if (log.parserType === 'none') {
       addStep('AI parser', 'skip', 'No LLM configured — skipped', t);
-      log.warnings.push('No AI parser configured. Set GEMINI_API_KEY in .env.local for best results.');
+      log.warnings.push('No AI parser configured. Set OLLAMA_BASE_URL + OLLAMA_MODEL, LOCAL_PROXY_URL + LOCAL_PROXY_KEY, or GEMINI_API_KEYS in .env.local for best results.');
     } else {
       try {
         aiResult = await parseWithLLM(mdContent);
@@ -673,28 +723,21 @@ async function parseWithLLM(markdownContent: string): Promise<ParsedTimetable> {
     return normalizeParsedTimetable(parsed, `Parsed using AI (${LLM_CONFIG.model}) via proxy`);
   } else {
     // Direct Gemini API
-    const response = await fetchWithTimeout(
-      `https://generativelanguage.googleapis.com/v1beta/models/${LLM_CONFIG.model}:generateContent?key=${LLM_CONFIG.apiKey}`,
+    const response = await fetchGeminiWithFailover(
+      LLM_CONFIG.model,
+      LLM_CONFIG.apiKeys,
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: `${TIMETABLE_SYSTEM_PROMPT}\n\n${userMessage}` }],
-          }],
-          generationConfig: {
-            temperature: 0,
-            maxOutputTokens: 4096,
-          },
-        }),
-        timeout: FETCH_TIMEOUT,
-      }
+        contents: [{
+          parts: [{ text: `${TIMETABLE_SYSTEM_PROMPT}\n\n${userMessage}` }],
+        }],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 4096,
+        },
+      },
+      FETCH_TIMEOUT,
+      'timetable extraction'
     );
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => 'unknown');
-      throw new Error(`Gemini API returned ${response.status}: ${errText}`);
-    }
 
     const data = await response.json();
     const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -984,7 +1027,7 @@ function autoDetectLabSessions(timetable: ParsedTimetable): ParsedTimetable {
 
   const mergedEntries: typeof timetable.timetableEntries = [];
 
-  for (const [day, entries] of entriesByDay.entries()) {
+  for (const entries of entriesByDay.values()) {
     // Sort entries by start time
     const sorted = [...entries].sort((a, b) => a.startTime.localeCompare(b.startTime));
     
@@ -1171,7 +1214,7 @@ function parseMarkdownTimetable(markdownContent: string): ParsedTimetable {
   };
 
   const normalizeTimeStr = (timeStr: string): string | null => {
-    let t = timeStr.trim().toUpperCase();
+    const t = timeStr.trim().toUpperCase();
     let hour = 0, minute = 0;
 
     const ampmMatch = t.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/);
@@ -1243,7 +1286,7 @@ function parseMarkdownTimetable(markdownContent: string): ParsedTimetable {
 
       let subjectName = '';
       let facultyName = 'Unknown Faculty';
-      let code = cellText;
+      const code = cellText;
 
       if (catalogEntry) {
         subjectName = catalogEntry.subject;
