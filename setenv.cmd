@@ -1,0 +1,4 @@
+@echo off
+echo https://attendancetool.vercel.app|vercel env add NEXT_PUBLIC_APP_URL production --sensitive=false
+echo https://qvxzchpwxfoycmrlrigg.supabase.co|vercel env add NEXT_PUBLIC_SUPABASE_URL production --sensitive=false
+echo eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2eHpjaHB3eGZveWNtcmxyaWdnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwNTAwNDYsImV4cCI6MjA5OTYyNjA0Nn0.Z914u0DC3F94ek1i67Bfj87sbHY9B1j3BWfu9O_xyC4|vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY production --sensitive=false
