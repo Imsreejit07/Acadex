@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import * as fs from 'fs';
+import { createRequire } from 'module';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -325,6 +326,8 @@ async function convertPdfToMarkdown(tempFilePath: string, outputDir: string): Pr
 
 async function extractMarkdownWithPdfJs(tempFilePath: string): Promise<string> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
+  const require = createRequire(import.meta.url);
+  pdfjs.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
   const data = new Uint8Array(fs.readFileSync(tempFilePath));
   const loadingTask = pdfjs.getDocument({
     data,
