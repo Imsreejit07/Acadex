@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { convert } from '@opendataloader/pdf';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -263,6 +262,92 @@ function countMarkdownTableRows(md: string): number {
   return md.split('\n').filter(line => line.includes('|') && line.startsWith('|')).length;
 }
 
+type PdfTextItem = {
+  str?: string;
+  transform?: number[];
+  width?: number;
+  height?: number;
+};
+
+async function convertPdfToMarkdown(tempFilePath: string, outputDir: string): Promise<{ markdown: string; engine: string; warning?: string }> {
+  try {
+    const javaBinDir = path.join(process.cwd(), '.java', 'jdk-21.0.11+10-jre', 'bin');
+    if (fs.existsSync(javaBinDir) && !process.env.PATH?.includes(javaBinDir)) {
+      process.env.PATH = javaBinDir + path.delimiter + process.env.PATH;
+    }
+
+    const { convert } = await import('@opendataloader/pdf');
+    await convert(tempFilePath, { outputDir, format: ['markdown'] });
+    const outFiles = fs.readdirSync(outputDir);
+    const mdFile = outFiles.find(f => f.endsWith('.md'));
+    if (!mdFile) throw new Error('No .md file produced');
+
+    return {
+      markdown: fs.readFileSync(path.join(outputDir, mdFile), 'utf8'),
+      engine: 'OpenDataLoader',
+    };
+  } catch (error: unknown) {
+    const warning = error instanceof Error ? error.message : String(error);
+    console.warn('OpenDataLoader conversion failed, using pdf.js fallback:', warning);
+    return {
+      markdown: await extractMarkdownWithPdfJs(tempFilePath),
+      engine: 'pdf.js fallback',
+      warning,
+    };
+  }
+}
+
+async function extractMarkdownWithPdfJs(tempFilePath: string): Promise<string> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
+  const data = new Uint8Array(fs.readFileSync(tempFilePath));
+  const loadingTask = pdfjs.getDocument({
+    data,
+    useSystemFonts: true,
+  });
+  const pdf = await loadingTask.promise;
+  const pages: string[] = [];
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const items = textContent.items as PdfTextItem[];
+    const rows = groupPdfTextItemsIntoRows(items);
+    pages.push(rows.map(row => `|${row.join('|')}|`).join('\n'));
+  }
+
+  const markdown = pages.join('\n\n');
+  if (!markdown.trim()) {
+    throw new Error('pdf.js fallback extracted no text. This PDF is likely scanned/image-only.');
+  }
+
+  return markdown;
+}
+
+function groupPdfTextItemsIntoRows(items: PdfTextItem[]): string[][] {
+  const rows = new Map<number, Array<{ x: number; text: string }>>();
+
+  for (const item of items) {
+    const text = (item.str || '').trim();
+    const transform = item.transform || [];
+    if (!text || transform.length < 6) continue;
+
+    const x = transform[4] || 0;
+    const y = transform[5] || 0;
+    const rowKey = Math.round(y / 4) * 4;
+    const row = rows.get(rowKey) || [];
+    row.push({ x, text });
+    rows.set(rowKey, row);
+  }
+
+  return Array.from(rows.entries())
+    .sort((a, b) => b[0] - a[0])
+    .map(([, row]) => row
+      .sort((a, b) => a.x - b.x)
+      .map(item => item.text.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim())
+    )
+    .filter(row => row.length > 0);
+}
+
 async function testLlmConnection(): Promise<{ success: boolean; parserType: string; model: string; message: string; details?: string }> {
   if (!LLM_CONFIG) {
     return {
@@ -435,10 +520,6 @@ export async function POST(request: Request) {
     // ── Step 2: Write to disk ──────────────────────────────────────────────
     t = Date.now();
     const bytes = await file.arrayBuffer();
-    const javaBinDir = 'D:\\attendance_tool\\.java\\jdk-21.0.11+10-jre\\bin';
-    if (!process.env.PATH?.includes(javaBinDir)) {
-      process.env.PATH = javaBinDir + path.delimiter + process.env.PATH;
-    }
     const tempDir = path.join(process.cwd(), 'scratch', 'uploads');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
     tempFilePath = path.join(tempDir, `${Date.now()}_timetable.pdf`);
@@ -452,26 +533,26 @@ export async function POST(request: Request) {
 
     let mdContent = '';
     try {
-      await convert(tempFilePath, { outputDir, format: ['markdown'] });
-      const outFiles = fs.readdirSync(outputDir);
-      const mdFile = outFiles.find(f => f.endsWith('.md'));
-      if (!mdFile) throw new Error('No .md file produced');
-      mdContent = fs.readFileSync(path.join(outputDir, mdFile), 'utf8');
+      const conversion = await convertPdfToMarkdown(tempFilePath, outputDir);
+      mdContent = conversion.markdown;
       const debugPath = path.join(process.cwd(), 'scratch', 'debug_output.md');
       fs.writeFileSync(debugPath, mdContent);
       log.rawMarkdownChars = mdContent.length;
       log.tableRowsDetected = countMarkdownTableRows(mdContent);
+      if (conversion.warning) {
+        log.warnings.push(`OpenDataLoader unavailable, used pdf.js fallback: ${conversion.warning}`);
+      }
       addStep(
-        'PDF → Markdown (OpenDataLoader)',
+        `PDF → Markdown (${conversion.engine})`,
         'ok',
         `${mdContent.length.toLocaleString()} chars · ${log.tableRowsDetected} table rows detected`,
         t
       );
     } catch (ocrErr: unknown) {
       const msg = ocrErr instanceof Error ? ocrErr.message : String(ocrErr);
-      addStep('PDF → Markdown (OpenDataLoader)', 'error', `FAILED: ${msg}`, t);
-      log.warnings.push(`OCR failed: ${msg}`);
-      throw new Error(`OpenDataLoader PDF conversion failed: ${msg}`);
+      addStep('PDF → Markdown', 'error', `FAILED: ${msg}`, t);
+      log.warnings.push(`PDF text extraction failed: ${msg}`);
+      throw new Error(`PDF text extraction failed: ${msg}`);
     }
 
     // ── Step 4: Deterministic parser ─────────────────────────────────────
