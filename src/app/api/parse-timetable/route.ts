@@ -12,9 +12,12 @@ const LLM_CONFIG = (() => {
   const proxyUrl = process.env.LOCAL_PROXY_URL;
   const proxyKey = process.env.LOCAL_PROXY_KEY;
   const geminiKeys = parseGeminiApiKeys();
+  const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+  const allowLocalLlmInProduction = process.env.ALLOW_LOCAL_LLM_IN_PRODUCTION === 'true';
+  const canUseLocalBackends = !isProduction || allowLocalLlmInProduction;
 
   // Prioritize local proxy (unified API key) if configured
-  if (proxyUrl && proxyKey) {
+  if (proxyUrl && proxyKey && (canUseLocalBackends || !isLoopbackUrl(proxyUrl))) {
     return {
       type: 'proxy' as const,
       baseUrl: proxyUrl.replace(/\/+$/, ''),
@@ -24,7 +27,7 @@ const LLM_CONFIG = (() => {
   }
 
   // Fall back to local Ollama when configured. This keeps timetable parsing fully local.
-  if (ollamaBaseUrl && ollamaModel) {
+  if (ollamaBaseUrl && ollamaModel && (canUseLocalBackends || !isLoopbackUrl(ollamaBaseUrl))) {
     return {
       type: 'ollama' as const,
       baseUrl: ollamaBaseUrl.replace(/\/+$/, ''),
@@ -151,6 +154,15 @@ function parseGeminiApiKeys(): string[] {
     .filter(Boolean);
 }
 
+function isLoopbackUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
 function rotateFromRandomStart<T>(items: T[]): T[] {
   if (items.length <= 1) return items;
   const start = Math.floor(Math.random() * items.length);
@@ -229,15 +241,19 @@ function buildParserDescription(): { type: string; model: string; reason: string
   const geminiKeyCount = parseGeminiApiKeys().length;
   const hasOllama = !!(process.env.OLLAMA_BASE_URL && process.env.OLLAMA_MODEL);
   const hasProxy = !!(process.env.LOCAL_PROXY_URL && process.env.LOCAL_PROXY_KEY);
+  const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+  const allowLocalLlmInProduction = process.env.ALLOW_LOCAL_LLM_IN_PRODUCTION === 'true';
+  const proxyIsLoopback = process.env.LOCAL_PROXY_URL ? isLoopbackUrl(process.env.LOCAL_PROXY_URL) : false;
+  const ollamaIsLoopback = process.env.OLLAMA_BASE_URL ? isLoopbackUrl(process.env.OLLAMA_BASE_URL) : false;
 
-  if (hasProxy) {
+  if (hasProxy && (!isProduction || allowLocalLlmInProduction || !proxyIsLoopback)) {
     return {
       type: 'proxy',
       model: 'auto',
       reason: 'LOCAL_PROXY_URL + LOCAL_PROXY_KEY are set — using local proxy (highest priority)',
     };
   }
-  if (hasOllama) {
+  if (hasOllama && (!isProduction || allowLocalLlmInProduction || !ollamaIsLoopback)) {
     return {
       type: 'ollama',
       model: process.env.OLLAMA_MODEL || 'unknown',
@@ -248,7 +264,8 @@ function buildParserDescription(): { type: string; model: string; reason: string
     return {
       type: 'gemini',
       model: 'gemini-2.5-flash',
-      reason: `${geminiKeyCount} Gemini API key(s) configured`,
+      reason: `${geminiKeyCount} Gemini API key(s) configured` +
+        (isProduction && (proxyIsLoopback || ollamaIsLoopback) ? ' — skipped localhost-only backends in production' : ''),
     };
   }
   return {
