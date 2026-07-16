@@ -121,10 +121,23 @@ Return ONLY valid JSON with this exact shape — no markdown fences, no explanat
 
 6. MERGED SESSION DETECTION & DURATION (RULE 12, RULE 13, RULE 14, RULE 15)
 - If consecutive timetable cells represent the same session (same subject, faculty, room, adjacent time intervals), merge them into a single entry covering the combined duration.
-- Infer componentType (THEORY or LAB).
+- NEVER infer LAB/TUTORIAL/WORKSHOP from duration alone. Duration only tells session length, not type.
+- Use componentType "LAB" only when the PDF explicitly labels the session/subject as Lab, Practical, Workshop, or similar.
+- If session type is not explicit, output componentType "THEORY" because the current app schema only accepts THEORY/LAB, but do not mark hasLab=true unless LAB is explicit.
 
 7. OCR NORMALIZATION (RULE 17)
-- Correct common OCR errors when confidence is high (e.g., O ↔ 0, I ↔ 1, S ↔ 5).`;
+- Correct common OCR errors when confidence is high (e.g., O ↔ 0, I ↔ 1, S ↔ 5).
+
+### STRICT EXTRACTION WORKFLOW
+
+1. First identify all independent tables: weekly timetable grid, subject/faculty/slot lookup table, room/class metadata, notes, legends.
+2. Build the complete subject lookup dictionary BEFORE mapping timetable cells.
+3. Preserve slot codes exactly. A cell like "N", "G2", "C", or "P" may be a valid slot code; do not discard single-letter cells unless the time column is explicitly Lunch/Break.
+4. Map every occupied timetable cell through the lookup dictionary when a slot table exists.
+5. If an occupied timetable cell cannot be mapped, still include it using subjectName "UNKNOWN <cell text>" and code "<cell text>", and add enough information in verificationLog to audit it.
+6. Empty timetable cells must remain omitted; never fill them.
+7. Do not invent missing faculty, rooms, credits, or subject names.
+8. After extraction, self-audit: every occupied non-break cell must correspond to exactly one timetable entry after merged-cell processing.`;
 
 /**
  * Fetch with a configurable timeout. Aborts the request after `ms` milliseconds.
@@ -1122,8 +1135,8 @@ function normalizeTime(value: unknown): string | null {
 }
 
 /**
- * Auto-detect lab sessions: merges consecutive classes of the same subject on the same day.
- * If the merged class duration is >= 100 minutes (2 periods), classifies it as a LAB session.
+ * Merge consecutive classes of the same subject on the same day.
+ * Session type is preserved; LAB is never inferred from duration alone.
  */
 function autoDetectLabSessions(timetable: ParsedTimetable): ParsedTimetable {
   const entriesByDay = new Map<string, typeof timetable.timetableEntries>();
@@ -1172,26 +1185,10 @@ function autoDetectLabSessions(timetable: ParsedTimetable): ParsedTimetable {
     mergedEntries.push(...dayMerged);
   }
 
-  // Now, classify any merged/single entry as LAB if its duration is >= 100 minutes (2 periods)
-  const finalEntries = mergedEntries.map(entry => {
-    const [startH, startM] = entry.startTime.split(':').map(Number);
-    const [endH, endM] = entry.endTime.split(':').map(Number);
-    const durationMinutes = (endH * 60 + endM) - (startH * 60 + startM);
-    
-    if (durationMinutes >= 100) {
-      const subject = timetable.subjects.find(s => s.name.toLowerCase() === entry.subjectName.toLowerCase());
-      if (subject) {
-        subject.hasLab = true;
-      }
-      return { ...entry, componentType: 'LAB' as const };
-    }
-    return entry;
-  });
-
   return {
     ...timetable,
-    timetableEntries: finalEntries,
-    verificationLog: timetable.verificationLog + '; consecutive slots merged & lab classification applied',
+    timetableEntries: mergedEntries,
+    verificationLog: timetable.verificationLog + '; consecutive slots merged without duration-based lab inference',
   };
 }
 
@@ -1404,8 +1401,7 @@ function parseMarkdownTimetable(markdownContent: string): ParsedTimetable {
         subjectName = catalogEntry.subject;
         facultyName = catalogEntry.faculty;
       } else {
-        // Fallback if slot not resolved
-        subjectName = cellText;
+        subjectName = `UNKNOWN ${cellText}`;
       }
 
       const hasLab = cellText.toLowerCase().includes('lab') || cellText.toLowerCase().includes('practical');
