@@ -7,6 +7,7 @@ import {
   calculateSafeSkip,
   type AttendanceStats,
 } from './attendance-engine';
+import { saveStateToSupabase } from '@/shared/lib/supabase-service';
 
 export type ComponentType = 'THEORY' | 'LAB' | 'TUTORIAL' | 'WORKSHOP' | 'SEMINAR' | 'OTHER';
 type LectureStatus = 'SCHEDULED' | 'CONDUCTED' | 'CANCELLED' | 'HOLIDAY';
@@ -147,78 +148,79 @@ const defaultData: Required<Pick<OnboardingData, 'semesterName' | 'academicYear'
 
 const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 
-// Global flag to indicate if we've initialized SQLite state
-let sqliteInitialized = false;
+// ─── Supabase sync debounce ──────────────────────────────────────────────────
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
 
-// Async function to load state from SQLite and sync to localStorage
-export async function initializeSqliteState() {
-  if (typeof window === 'undefined' || sqliteInitialized) return;
-  
-  // Check if we are running in Tauri
-  const isTauri = (window as any).__TAURI_INTERNALS__ !== undefined || (window as any).__TAURI__ !== undefined;
-  if (!isTauri) return;
+function scheduleSyncToSupabase() {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    const parsed = JSON.parse(getSnapshot()) as {
+      onboarding: OnboardingData;
+      overrides: AttendanceOverride[];
+      events: AcademicEvent[];
+      holidays: Holiday[];
+      extraClasses: ExtraClass[];
+      rescheduledClasses: RescheduledClass[];
+      attendanceCredits: AttendanceCredit[];
+    };
+    saveStateToSupabase(parsed).catch(err =>
+      console.warn('Background Supabase sync failed:', err)
+    );
+  }, 1500);
+}
 
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    
-    const keys = [
-      ONBOARDING_KEY,
-      ATTENDANCE_KEY,
-      'academic_events',
-      'holidays_list',
-      'extra_classes',
-      'rescheduled_classes',
-      'attendance_credits',
-    ];
-
-    for (const key of keys) {
-      const val = await invoke<string | null>('load_local_state', { key });
-      if (val !== null && val !== undefined) {
-        window.localStorage.setItem(key, val);
-      }
-    }
-    
-    sqliteInitialized = true;
-    window.dispatchEvent(new Event(STORE_EVENT));
-  } catch (err) {
-    console.error('Failed to initialize SQLite state:', err);
+// ─── Notification helper ─────────────────────────────────────────────────────
+export function showNativeNotification(title: string, body: string) {
+  if (typeof window === 'undefined') return;
+  if (!('Notification' in window)) return;
+  const trigger = () => {
+    try { new window.Notification(title, { body }); } catch (e) { console.warn(e); }
+  };
+  if (window.Notification.permission === 'granted') {
+    trigger();
+  } else if (window.Notification.permission !== 'denied') {
+    window.Notification.requestPermission().then(p => { if (p === 'granted') trigger(); });
   }
 }
 
-function readJson<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') return fallback;
+// ─── Preference helper ───────────────────────────────────────────────────────
+export function savePreference(key: string, value: string) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(key, value);
+  window.dispatchEvent(new Event(STORE_EVENT));
+}
 
-  // Trigger async load once on first read if not yet initialized
-  if (!sqliteInitialized) {
-    initializeSqliteState();
-  }
+// ─── Supabase cloud load ─────────────────────────────────────────────────────
+let cloudInitialized = false;
 
-  const value = window.localStorage.getItem(key);
-  if (!value) return fallback;
+export async function initializeSqliteState() {
+  if (typeof window === 'undefined' || cloudInitialized) return;
+  cloudInitialized = true;
 
   try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
+    const { loadStateFromSupabase } = await import('@/shared/lib/supabase-service');
+    const loaded = await loadStateFromSupabase();
+    if (loaded) {
+      window.dispatchEvent(new Event(STORE_EVENT));
+    }
+  } catch (err) {
+    console.warn('Could not load from Supabase (user may not be logged in):', err);
   }
+}
+
+// ─── JSON helpers ─────────────────────────────────────────────────────────────
+function readJson<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  const value = window.localStorage.getItem(key);
+  if (!value) return fallback;
+  try { return JSON.parse(value) as T; } catch { return fallback; }
 }
 
 function writeJson(key: string, value: unknown) {
   const jsonStr = JSON.stringify(value);
   window.localStorage.setItem(key, jsonStr);
   window.dispatchEvent(new Event(STORE_EVENT));
-
-  // Sync to SQLite asynchronously if running in Tauri
-  const isTauri = typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ !== undefined || (window as any).__TAURI__ !== undefined);
-  if (isTauri) {
-    import('@tauri-apps/api/core').then(({ invoke }) => {
-      invoke('save_local_state', { key, value: jsonStr }).catch((err) => {
-        console.error(`Failed to save state to SQLite for key ${key}:`, err);
-      });
-    }).catch(err => {
-      console.error('Failed to load Tauri core for save_local_state:', err);
-    });
-  }
+  scheduleSyncToSupabase();
 }
 
 function subscribe(callback: () => void) {
@@ -239,7 +241,6 @@ function getSnapshot() {
     timetableEntries: saved.timetableEntries?.length ? saved.timetableEntries : defaultData.timetableEntries,
   };
   const overrides = readJson<AttendanceOverride[]>(ATTENDANCE_KEY, []);
-  
   const events = readJson<AcademicEvent[]>('academic_events', []);
   const holidays = readJson<Holiday[]>('holidays_list', []);
   const extraClasses = readJson<ExtraClass[]>('extra_classes', []);
@@ -260,19 +261,15 @@ export function getResolvedComponentType(
   entry: { startTime: string; endTime: string; componentType?: string; manualOverrideType?: string; subjectName: string },
   subjects: Array<{ name: string; hasLab?: boolean }>
 ): string {
-  if (entry.manualOverrideType) {
-    return entry.manualOverrideType;
-  }
-  const subject = subjects?.find((s) => s.name === entry.subjectName);
+  if (entry.manualOverrideType) return entry.manualOverrideType;
+  const subject = subjects?.find(s => s.name === entry.subjectName);
   if (subject?.hasLab) {
     try {
       const [startH, startM] = entry.startTime.split(':').map(Number);
       const [endH, endM] = entry.endTime.split(':').map(Number);
       const durationMinutes = (endH * 60 + endM) - (startH * 60 + startM);
-      if (durationMinutes >= 100) {
-        return 'LAB';
-      }
-    } catch (e) {}
+      if (durationMinutes >= 100) return 'LAB';
+    } catch {}
   }
   return entry.componentType || 'THEORY';
 }
@@ -293,8 +290,8 @@ function buildLectureId(entry: TimetableEntry, date: string, resolvedType: strin
 }
 
 function getLectures(
-  onboarding: OnboardingData, 
-  overrides: AttendanceOverride[], 
+  onboarding: OnboardingData,
+  overrides: AttendanceOverride[],
   holidays: Holiday[],
   extraClasses: ExtraClass[],
   rescheduledClasses: RescheduledClass[],
@@ -307,12 +304,10 @@ function getLectures(
   if (end < start) return [];
 
   const todayDateStr = formatDate(today);
-
-  const overrideMap = new Map(overrides.map((override) => [override.lectureId, override]));
-  const rescheduleMap = new Map(rescheduledClasses.map((rc) => [rc.originalLectureId, rc]));
+  const overrideMap = new Map(overrides.map(override => [override.lectureId, override]));
+  const rescheduleMap = new Map(rescheduledClasses.map(rc => [rc.originalLectureId, rc]));
   const lectures: LectureInstance[] = [];
 
-  // Determine the onboarding completion date for mid-semester backfill
   const onboardingDate = onboarding.onboardingCompletedAt
     ? dateOnly(onboarding.onboardingCompletedAt)
     : null;
@@ -322,8 +317,8 @@ function getLectures(
     const dateString = formatDate(date);
     const day = dayNames[date.getDay()];
 
-    const globalHoliday = holidays.find(h => 
-      (h.type === 'GLOBAL' || h.type === 'SINGLE_DAY') && 
+    const globalHoliday = holidays.find(h =>
+      (h.type === 'GLOBAL' || h.type === 'SINGLE_DAY') &&
       dateString >= h.startDate && dateString <= h.endDate
     );
 
@@ -332,7 +327,7 @@ function getLectures(
 
       const resolvedType = getResolvedComponentType(entry, onboarding.subjects || []);
       const id = buildLectureId(entry, dateString, resolvedType);
-      
+
       const subjectHoliday = holidays.find(h =>
         h.type === 'SUBJECT' &&
         h.subjectName === entry.subjectName &&
@@ -343,77 +338,28 @@ function getLectures(
       const reschedule = rescheduleMap.get(id);
 
       if (isHoliday) {
-        lectures.push({
-          id,
-          subjectName: entry.subjectName,
-          componentType: resolvedType as any,
-          date: dateString,
-          startTime: entry.startTime,
-          endTime: entry.endTime,
-          status: 'HOLIDAY',
-          attendance: null,
-        });
+        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as any, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: 'HOLIDAY', attendance: null });
         continue;
       }
 
       if (reschedule) {
-        lectures.push({
-          id,
-          subjectName: entry.subjectName,
-          componentType: resolvedType as any,
-          date: dateString,
-          startTime: entry.startTime,
-          endTime: entry.endTime,
-          status: 'CANCELLED',
-          attendance: null,
-        });
+        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as any, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: 'CANCELLED', attendance: null });
         continue;
       }
 
       const override = overrideMap.get(id);
-
-      // If an override exists, use it (user has already made a decision)
       if (override) {
-        lectures.push({
-          id,
-          subjectName: entry.subjectName,
-          componentType: resolvedType as any,
-          date: dateString,
-          startTime: entry.startTime,
-          endTime: entry.endTime,
-          status: override?.status || 'SCHEDULED',
-          attendance: override?.attendance || null,
-        });
+        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as any, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: override.status || 'SCHEDULED', attendance: override.attendance || null });
         continue;
       }
 
-      // Mid-semester onboarding: Mark all lectures before onboarding date as PRESENT
       if (isMidSemester && date <= onboardingDate) {
-        lectures.push({
-          id,
-          subjectName: entry.subjectName,
-          componentType: resolvedType as any,
-          date: dateString,
-          startTime: entry.startTime,
-          endTime: entry.endTime,
-          status: 'CONDUCTED',
-          attendance: 'PRESENT',
-        });
+        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as any, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: 'CONDUCTED', attendance: 'PRESENT' });
         continue;
       }
 
-      // Default: if class date is strictly in the past (before today), default to Conducted & Present
       const isPast = dateString < todayDateStr;
-      lectures.push({
-        id,
-        subjectName: entry.subjectName,
-        componentType: resolvedType as any,
-        date: dateString,
-        startTime: entry.startTime,
-        endTime: entry.endTime,
-        status: isPast ? 'CONDUCTED' : 'SCHEDULED',
-        attendance: isPast ? 'PRESENT' : null,
-      });
+      lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as any, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: isPast ? 'CONDUCTED' : 'SCHEDULED', attendance: isPast ? 'PRESENT' : null });
     }
   }
 
@@ -421,16 +367,7 @@ function getLectures(
   for (const ec of extraClasses) {
     const ecDate = dateOnly(ec.date);
     if (ecDate <= end) {
-      lectures.push({
-        id: `extra|${ec.id}`,
-        subjectName: ec.subjectName,
-        componentType: ec.componentType,
-        date: ec.date,
-        startTime: ec.startTime,
-        endTime: ec.endTime,
-        status: ec.status,
-        attendance: ec.attendanceStatus,
-      });
+      lectures.push({ id: `extra|${ec.id}`, subjectName: ec.subjectName, componentType: ec.componentType, date: ec.date, startTime: ec.startTime, endTime: ec.endTime, status: ec.status, attendance: ec.attendanceStatus });
     }
   }
 
@@ -441,17 +378,7 @@ function getLectures(
       const originalParts = rc.originalLectureId.split('|');
       const subjectName = originalParts[2] || 'Rescheduled Class';
       const compType = (originalParts[3] || 'THEORY') as ComponentType;
-      
-      lectures.push({
-        id: `rescheduled|${rc.id}`,
-        subjectName,
-        componentType: compType,
-        date: rc.newDate,
-        startTime: rc.newStartTime,
-        endTime: rc.newEndTime,
-        status: 'CONDUCTED',
-        attendance: rc.attendanceStatus,
-      });
+      lectures.push({ id: `rescheduled|${rc.id}`, subjectName, componentType: compType, date: rc.newDate, startTime: rc.newStartTime, endTime: rc.newEndTime, status: 'CONDUCTED', attendance: rc.attendanceStatus });
     }
   }
 
@@ -485,8 +412,8 @@ function toEngineLecture(lecture: LectureInstance) {
 }
 
 export function useAttendanceStore() {
-  const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => JSON.stringify({ 
-    onboarding: defaultData, 
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => JSON.stringify({
+    onboarding: defaultData,
     overrides: [],
     events: [],
     holidays: [],
@@ -494,9 +421,9 @@ export function useAttendanceStore() {
     rescheduledClasses: [],
     attendanceCredits: []
   }));
-  
-  const parsed = JSON.parse(snapshot) as { 
-    onboarding: OnboardingData; 
+
+  const parsed = JSON.parse(snapshot) as {
+    onboarding: OnboardingData;
     overrides: AttendanceOverride[];
     events: AcademicEvent[];
     holidays: Holiday[];
@@ -506,7 +433,7 @@ export function useAttendanceStore() {
   };
 
   const lectures = getLectures(
-    parsed.onboarding, 
+    parsed.onboarding,
     parsed.overrides,
     parsed.holidays,
     parsed.extraClasses,
@@ -515,30 +442,27 @@ export function useAttendanceStore() {
 
   const isBeforeStartDate = Boolean(parsed.onboarding.startDate) && dateOnly(formatDate(new Date())) < dateOnly(parsed.onboarding.startDate || '');
 
-  const bySubject = (parsed.onboarding.subjects || []).map((subject) => {
-    const subjectLectures = lectures.filter((lecture) => lecture.subjectName === subject.name);
-    
-    const theoryLectures = subjectLectures.filter((l) => l.componentType !== 'LAB');
-    const labLectures = subjectLectures.filter((l) => l.componentType === 'LAB');
+  const bySubject = (parsed.onboarding.subjects || []).map(subject => {
+    const subjectLectures = lectures.filter(l => l.subjectName === subject.name);
+    const theoryLectures = subjectLectures.filter(l => l.componentType !== 'LAB');
+    const labLectures = subjectLectures.filter(l => l.componentType === 'LAB');
 
     const theoryStats = calculateAttendance(theoryLectures.map(toEngineLecture));
     const labStats = calculateAttendance(labLectures.map(toEngineLecture));
     const overallStats = calculateAttendance(subjectLectures.map(toEngineLecture));
 
-    // Incorporate Attendance Credits: adds to PRESENT count without increasing CONDUCTED count!
     const subjectCredits = parsed.attendanceCredits
       .filter(c => c.subjectName === subject.name)
       .reduce((sum, c) => sum + c.credits, 0);
 
     if (subjectCredits > 0) {
       theoryStats.present += subjectCredits;
-      theoryStats.attendancePercentage = theoryStats.conducted > 0 
-        ? Math.min(100, (theoryStats.present / theoryStats.conducted) * 100) 
+      theoryStats.attendancePercentage = theoryStats.conducted > 0
+        ? Math.min(100, (theoryStats.present / theoryStats.conducted) * 100)
         : null;
-
       overallStats.present += subjectCredits;
-      overallStats.attendancePercentage = overallStats.conducted > 0 
-        ? Math.min(100, (overallStats.present / overallStats.conducted) * 100) 
+      overallStats.attendancePercentage = overallStats.conducted > 0
+        ? Math.min(100, (overallStats.present / overallStats.conducted) * 100)
         : null;
     }
 
@@ -550,15 +474,15 @@ export function useAttendanceStore() {
       theoryStats,
       labStats,
       overallStats,
-      stats: overallStats, // backwards compatibility
+      stats: overallStats,
       target: theoryTarget,
       labTarget,
       missableClasses: calculateSafeSkip(overallStats.present, overallStats.conducted, theoryTarget).safeSkips,
     };
   });
 
-  const theoryLectures = lectures.filter((l) => l.componentType !== 'LAB');
-  const labLectures = lectures.filter((l) => l.componentType === 'LAB');
+  const theoryLectures = lectures.filter(l => l.componentType !== 'LAB');
+  const labLectures = lectures.filter(l => l.componentType === 'LAB');
 
   const totalTheoryStats = calculateAttendance(theoryLectures.map(toEngineLecture));
   const totalLabStats = calculateAttendance(labLectures.map(toEngineLecture));
@@ -570,7 +494,6 @@ export function useAttendanceStore() {
     totalTheoryStats.attendancePercentage = totalTheoryStats.conducted > 0
       ? Math.min(100, (totalTheoryStats.present / totalTheoryStats.conducted) * 100)
       : null;
-
     overallStats.present += totalCredits;
     overallStats.attendancePercentage = overallStats.conducted > 0
       ? Math.min(100, (overallStats.present / overallStats.conducted) * 100)
@@ -591,49 +514,33 @@ export function useAttendanceStore() {
     overallStats,
     totalTheoryStats,
     totalLabStats,
-    
+
     setOnboarding(data: OnboardingData) {
       writeJson(ONBOARDING_KEY, data);
     },
     setLectureStatus(lectureId: string, status: LectureStatus, attendance: AttendanceStatus | null) {
-      const next = parsed.overrides.filter((override) => override.lectureId !== lectureId);
+      const next = parsed.overrides.filter(override => override.lectureId !== lectureId);
       next.push({ lectureId, status, attendance: status === 'CONDUCTED' ? attendance : null });
       writeJson(ATTENDANCE_KEY, next);
     },
-    
-    setEvents(nextEvents: AcademicEvent[]) {
-      writeJson('academic_events', nextEvents);
-    },
-    setHolidays(nextHolidays: Holiday[]) {
-      writeJson('holidays_list', nextHolidays);
-    },
-    setExtraClasses(nextExtra: ExtraClass[]) {
-      writeJson('extra_classes', nextExtra);
-    },
-    setRescheduledClasses(nextRescheduled: RescheduledClass[]) {
-      writeJson('rescheduled_classes', nextRescheduled);
-    },
-    setAttendanceCredits(nextCredits: AttendanceCredit[]) {
-      writeJson('attendance_credits', nextCredits);
-    },
+    setEvents(nextEvents: AcademicEvent[]) { writeJson('academic_events', nextEvents); },
+    setHolidays(nextHolidays: Holiday[]) { writeJson('holidays_list', nextHolidays); },
+    setExtraClasses(nextExtra: ExtraClass[]) { writeJson('extra_classes', nextExtra); },
+    setRescheduledClasses(nextRescheduled: RescheduledClass[]) { writeJson('rescheduled_classes', nextRescheduled); },
+    setAttendanceCredits(nextCredits: AttendanceCredit[]) { writeJson('attendance_credits', nextCredits); },
+
     deleteLecture(lectureId: string) {
-      // For extra classes: remove from extra_classes list
       if (lectureId.startsWith('extra|')) {
         const extraId = lectureId.replace('extra|', '');
-        const next = parsed.extraClasses.filter(ec => ec.id !== extraId);
-        writeJson('extra_classes', next);
+        writeJson('extra_classes', parsed.extraClasses.filter(ec => ec.id !== extraId));
         return;
       }
-      // For rescheduled classes: remove from rescheduled_classes list
       if (lectureId.startsWith('rescheduled|')) {
         const rcId = lectureId.replace('rescheduled|', '');
-        const next = parsed.rescheduledClasses.filter(rc => rc.id !== rcId);
-        writeJson('rescheduled_classes', next);
+        writeJson('rescheduled_classes', parsed.rescheduledClasses.filter(rc => rc.id !== rcId));
         return;
       }
-      // For regular lectures: remove the override (resets to default computed state)
-      const next = parsed.overrides.filter(o => o.lectureId !== lectureId);
-      writeJson(ATTENDANCE_KEY, next);
-    }
+      writeJson(ATTENDANCE_KEY, parsed.overrides.filter(o => o.lectureId !== lectureId));
+    },
   };
 }

@@ -1,0 +1,405 @@
+=== EXTRACTED PDF TEXT ===
+
+
+Dr Shyama Prasad Mukherjee Internatonal Institute of Information Technology, Naya Raipur
+Time Table Autum Semester 2026-27
+ B.Tech III Semester ECE w.e.f. 20/07/2026 Room No 209
+Day/Time 9:00-9:55 10:00-10:5511:00-11:5512:00-12:55  1 - 2 02:00-02:5503:00-03:5504:00-04:5505:00-05:55
+Monday G H H L J M D
+
+Tuesday H D N U J I I
+
+Wednesday H D D N M M F F
+
+Thursday G G J J C N I I      
+
+Friday N N F E H M I I
+
+S. No Faculty Subject Slot
+1 Dr. Shashi Embedded Systems Design H
+
+2 Dr. Charu Design & Analysis of Algorithms J
+
+3 Dr. Maifuz Electromagnetic Field Theory M
+
+4 Dr. Deepika Electronic Circuit-I D
+
+5 Dr. Vijaya Object Oriented Programming G
+
+6 Dr. Krishnanand Optimization Techniques F
+
+7 Dr. Rajarshi  Communication Systems N
+
+8 Dr. Srishti Introduction to Finance E
+
+9 Multi-Disciplinary Minor-1 I
+
+Note: Multi-Disciplinary Minor labs
+
+Bussiness Informatics Friday,Thrusday(Computer Center)
+
+Cyber Security Friday (CP Lab),Thursday (CP Lab)Thrusday(CP Lab)
+
+Digital Humanities Tuesday (CP Lab),Thursday (Network Lab)Thrusday(Network Lab)
+
+Digital Mobility Robotics Lab
+
+=== LLM RESPONSE ===
+
+{
+  "subjects": [
+    {
+      "name": "Object Oriented Programming",
+      "code": "G",
+      "faculty": "Dr. Vijaya",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Embedded Systems Design",
+      "code": "H",
+      "faculty": "Dr. Shashi",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Design & Analysis of Algorithms",
+      "code": "J",
+      "faculty": "Dr. Charu",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Electromagnetic Field Theory",
+      "code": "M",
+      "faculty": "Dr. Maifuz",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Electronic Circuit-I",
+      "code": "D",
+      "faculty": "Dr. Deepika",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Optimization Techniques",
+      "code": "F",
+      "faculty": "Dr. Krishnanand",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Communication Systems",
+      "code": "N",
+      "faculty": "Dr. Rajarshi",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Introduction to Finance",
+      "code": "E",
+      "faculty": "Dr. Srishti",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Multi-Disciplinary Minor-1",
+      "code": "I",
+      "faculty": "Unknown Faculty",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Unknown Subject",
+      "code": "L",
+      "faculty": "Unknown Faculty",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Unknown Subject",
+      "code": "U",
+      "faculty": "Unknown Faculty",
+      "color": "#3B82F6",
+      "hasLab": false
+    },
+    {
+      "name": "Unknown Subject",
+      "code": "C",
+      "faculty": "Unknown Faculty",
+      "color": "#3B82F6",
+      "hasLab": false
+    }
+  ],
+  "timetableEntries": [
+    {
+      "day": "MONDAY",
+      "subjectName": "Object Oriented Programming",
+      "componentType": "THEORY",
+      "startTime": "09:00",
+      "endTime": "09:55"
+    },
+    {
+      "day": "MONDAY",
+      "subjectName": "Embedded Systems Design",
+      "componentType": "THEORY",
+      "startTime": "10:00",
+      "endTime": "10:55"
+    },
+    {
+      "day": "MONDAY",
+      "subjectName": "Embedded Systems Design",
+      "componentType": "THEORY",
+      "startTime": "11:00",
+      "endTime": "11:55"
+    },
+    {
+      "day": "MONDAY",
+      "subjectName": "Unknown Subject",
+      "componentType": "UNKNOWN",
+      "startTime": "12:00",
+      "endTime": "12:55"
+    },
+    {
+      "day": "MONDAY",
+      "subjectName": "Design & Analysis of Algorithms",
+      "componentType": "THEORY",
+      "startTime": "14:00",
+      "endTime": "14:55"
+    },
+    {
+      "day": "MONDAY",
+      "subjectName": "Electromagnetic Field Theory",
+      "componentType": "THEORY",
+      "startTime": "15:00",
+      "endTime": "15:55"
+    },
+    {
+      "day": "MONDAY",
+      "subjectName": "Electronic Circuit-I",
+      "componentType": "THEORY",
+      "startTime": "16:00",
+      "endTime": "16:55"
+    },
+    {
+      "day": "TUESDAY",
+      "subjectName": "Embedded Systems Design",
+      "componentType": "THEORY",
+      "startTime": "09:00",
+      "endTime": "09:55"
+    },
+    {
+      "day": "TUESDAY",
+      "subjectName": "Electronic Circuit-I",
+      "componentType": "THEORY",
+      "startTime": "10:00",
+      "endTime": "10:55"
+    },
+    {
+      "day": "TUESDAY",
+      "subjectName": "Communication Systems",
+      "componentType": "THEORY",
+      "startTime": "11:00",
+      "endTime": "11:55"
+    },
+    {
+      "day": "TUESDAY",
+      "subjectName": "Unknown Subject",
+      "componentType": "UNKNOWN",
+      "startTime": "12:00",
+      "endTime": "12:55"
+    },
+    {
+      "day": "TUESDAY",
+      "subjectName": "Design & Analysis of Algorithms",
+      "componentType": "THEORY",
+      "startTime": "14:00",
+      "endTime": "14:55"
+    },
+    {
+      "day": "TUESDAY",
+      "subjectName": "Multi-Disciplinary Minor-1",
+      "componentType": "UNKNOWN",
+      "startTime": "15:00",
+      "endTime": "15:55"
+    },
+    {
+      "day": "TUESDAY",
+      "subjectName": "Multi-Disciplinary Minor-1",
+      "componentType": "UNKNOWN",
+      "startTime": "16:00",
+      "endTime": "16:55"
+    },
+    {
+      "day": "WEDNESDAY",
+      "subjectName": "Embedded Systems Design",
+      "componentType": "THEORY",
+      "startTime": "09:00",
+      "endTime": "09:55"
+    },
+    {
+      "day": "WEDNESDAY",
+      "subjectName": "Electronic Circuit-I",
+      "componentType": "THEORY",
+      "startTime": "10:00",
+      "endTime": "10:55"
+    },
+    {
+      "day": "WEDNESDAY",
+      "subjectName": "Electronic Circuit-I",
+      "componentType": "THEORY",
+      "startTime": "11:00",
+      "endTime": "11:55"
+    },
+    {
+      "day": "WEDNESDAY",
+      "subjectName": "Communication Systems",
+      "componentType": "THEORY",
+      "startTime": "12:00",
+      "endTime": "12:55"
+    },
+    {
+      "day": "WEDNESDAY",
+      "subjectName": "Electromagnetic Field Theory",
+      "componentType": "THEORY",
+      "startTime": "14:00",
+      "endTime": "14:55"
+    },
+    {
+      "day": "WEDNESDAY",
+      "subjectName": "Electromagnetic Field Theory",
+      "componentType": "THEORY",
+      "startTime": "15:00",
+      "endTime": "15:55"
+    },
+    {
+      "day": "WEDNESDAY",
+      "subjectName": "Optimization Techniques",
+      "componentType": "THEORY",
+      "startTime": "16:00",
+      "endTime": "16:55"
+    },
+    {
+      "day": "WEDNESDAY",
+      "subjectName": "Optimization Techniques",
+      "componentType": "THEORY",
+      "startTime": "17:00",
+      "endTime": "17:55"
+    },
+    {
+      "day": "THURSDAY",
+      "subjectName": "Object Oriented Programming",
+      "componentType": "THEORY",
+      "startTime": "09:00",
+      "endTime": "09:55"
+    },
+    {
+      "day": "THURSDAY",
+      "subjectName": "Object Oriented Programming",
+      "componentType": "THEORY",
+      "startTime": "10:00",
+      "endTime": "10:55"
+    },
+    {
+      "day": "THURSDAY",
+      "subjectName": "Design & Analysis of Algorithms",
+      "componentType": "THEORY",
+      "startTime": "11:00",
+      "endTime": "11:55"
+    },
+    {
+      "day": "THURSDAY",
+      "subjectName": "Design & Analysis of Algorithms",
+      "componentType": "THEORY",
+      "startTime": "12:00",
+      "endTime": "12:55"
+    },
+    {
+      "day": "THURSDAY",
+      "subjectName": "Unknown Subject",
+      "componentType": "UNKNOWN",
+      "startTime": "14:00",
+      "endTime": "14:55"
+    },
+    {
+      "day": "THURSDAY",
+      "subjectName": "Communication Systems",
+      "componentType": "THEORY",
+      "startTime": "15:00",
+      "endTime": "15:55"
+    },
+    {
+      "day": "THURSDAY",
+      "subjectName": "Multi-Disciplinary Minor-1",
+      "componentType": "UNKNOWN",
+      "startTime": "16:00",
+      "endTime": "16:55"
+    },
+    {
+      "day": "THURSDAY",
+      "subjectName": "Multi-Disciplinary Minor-1",
+      "componentType": "UNKNOWN",
+      "startTime": "17:00",
+      "endTime": "17:55"
+    },
+    {
+      "day": "FRIDAY",
+      "subjectName": "Communication Systems",
+      "componentType": "THEORY",
+      "startTime": "09:00",
+      "endTime": "09:55"
+    },
+    {
+      "day": "FRIDAY",
+      "subjectName": "Communication Systems",
+      "componentType": "THEORY",
+      "startTime": "10:00",
+      "endTime": "10:55"
+    },
+    {
+      "day": "FRIDAY",
+      "subjectName": "Optimization Techniques",
+      "componentType": "THEORY",
+      "startTime": "11:00",
+      "endTime": "11:55"
+    },
+    {
+      "day": "FRIDAY",
+      "subjectName": "Introduction to Finance",
+      "componentType": "THEORY",
+      "startTime": "12:00",
+      "endTime": "12:55"
+    },
+    {
+      "day": "FRIDAY",
+      "subjectName": "Embedded Systems Design",
+      "componentType": "THEORY",
+      "startTime": "14:00",
+      "endTime": "14:55"
+    },
+    {
+      "day": "FRIDAY",
+      "subjectName": "Electromagnetic Field Theory",
+      "componentType": "THEORY",
+      "startTime": "15:00",
+      "endTime": "15:55"
+    },
+    {
+      "day": "FRIDAY",
+      "subjectName": "Multi-Disciplinary Minor-1",
+      "componentType": "UNKNOWN",
+      "startTime": "16:00",
+      "endTime": "16:55"
+    },
+    {
+      "day": "FRIDAY",
+      "subjectName": "Multi-Disciplinary Minor-1",
+      "componentType": "UNKNOWN",
+      "startTime": "17:00",
+      "endTime": "17:55"
+    }
+  ]
+}
+

@@ -117,6 +117,19 @@ export function calculateAttendance(
     ? (present / conducted) * 100 
     : null;
 
+  // Double-Check Inequality Verification (C_attended + A_max = T and actual >= 75%)
+  if (conducted > 0) {
+    const minPresent = Math.ceil(0.75 * conducted);
+    const maxAbsences = Math.floor(0.25 * conducted);
+    if (minPresent + maxAbsences !== conducted) {
+      console.warn(`Double-check inequality mismatch: minPresent (${minPresent}) + maxAbsences (${maxAbsences}) !== conducted (${conducted})`);
+    }
+    const checkMinPct = (minPresent / conducted) * 100;
+    if (checkMinPct < 75) {
+      console.warn(`Double-check inequality mismatch: min percentage (${checkMinPct.toFixed(1)}%) is less than 75%`);
+    }
+  }
+
   return {
     conducted,
     present,
@@ -169,16 +182,21 @@ export function calculateNeedClasses(
 ): NeedClassesResult {
   if (conducted === 0) return { needed: 0 };
 
+  // If already at or above target, we need 0 classes
+  if ((present / conducted) * 100 >= targetPercentage) {
+    return { needed: 0 };
+  }
+
   let currentPresent = present;
   let currentConducted = conducted;
   let needed = 0;
 
   while (true) {
+    needed++;
     currentPresent++;
     currentConducted++;
-    const attendance = currentPresent / currentConducted * 100;
+    const attendance = (currentPresent / currentConducted) * 100;
     if (attendance >= targetPercentage) break;
-    needed++;
     if (needed > 1000) break; // Safety limit
   }
 

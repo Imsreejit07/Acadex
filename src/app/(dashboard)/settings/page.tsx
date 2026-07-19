@@ -2,129 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { CheckCircle, AlertTriangle, RefreshCw, Cpu } from 'lucide-react';
-import { useAttendanceStore } from '@/features/attendance/services/attendance-store';
+import { useAttendanceStore, savePreference, showNativeNotification } from '@/features/attendance/services/attendance-store';
+import { toast, Toaster } from 'sonner';
 
-function OllamaSettings() {
-  const [models, setModels] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isTauri, setIsTauri] = useState(false);
-
-  useEffect(() => {
-    const tauriActive = typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ !== undefined || (window as any).__TAURI__ !== undefined);
-    setIsTauri(tauriActive);
-
-    const saved = localStorage.getItem('selected_ollama_model') || '';
-    setSelectedModel(saved);
-
-    if (tauriActive) {
-      loadModels();
-    }
-  }, []);
-
-  const loadModels = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const modelList = await invoke<string[]>('get_ollama_models');
-      setModels(modelList);
-      
-      // If nothing is selected yet, default to the first one available
-      const saved = localStorage.getItem('selected_ollama_model') || '';
-      if (!saved && modelList.length > 0) {
-        handleModelChange(modelList[0]);
-      }
-    } catch (err: any) {
-      setError(err?.toString() || 'Failed to detect local Ollama instance');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleModelChange = (model: string) => {
-    setSelectedModel(model);
-    localStorage.setItem('selected_ollama_model', model);
-    
-    // Also save as env-override for the API parser
-    localStorage.setItem('OLLAMA_MODEL', model);
-    window.dispatchEvent(new Event('attendance-tool-store-change'));
-  };
-
-  if (!isTauri) {
-    return (
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="px-5 py-4 border-b border-border">
-          <h3 className="font-semibold text-foreground flex items-center gap-2">
-            <Cpu size={16} /> Local AI Configuration
-          </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Local Ollama model selector is only available inside the Acadex Desktop app.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
-      <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-        <div>
-          <h3 className="font-semibold text-foreground flex items-center gap-2">
-            <Cpu size={16} /> Local AI Configuration (Ollama)
-          </h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Choose which locally running Ollama model should parse your schedules
-          </p>
-        </div>
-        <button
-          onClick={loadModels}
-          disabled={loading}
-          className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors border border-border"
-          title="Refresh models list"
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </div>
-
-      <div className="px-5 py-5 space-y-4">
-        {error ? (
-          <div className="p-3 rounded-lg bg-rose-500/5 border border-rose-500/20 text-xs text-rose-600 dark:text-rose-400">
-            <p className="font-semibold">Ollama Connection Status: Offline</p>
-            <p className="mt-1 text-muted-foreground">
-              Please ensure Ollama is installed and running at <code>http://127.0.0.1:11434</code>. 
-            </p>
-          </div>
-        ) : models.length === 0 ? (
-          <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400">
-            <p className="font-semibold">No models detected</p>
-            <p className="mt-1 text-muted-foreground">
-              Please run <code>ollama pull &lt;model-name&gt;</code> to download a model (e.g. qwen2.5:14b).
-            </p>
-          </div>
-        ) : (
-          <div>
-            <label className="block text-xs text-muted-foreground mb-1.5 font-medium">
-              Installed Models
-            </label>
-            <select
-              value={selectedModel}
-              onChange={(e) => handleModelChange(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground focus:outline-none focus:border-foreground"
-            >
-              {models.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+// Local settings are handled via web client.
 
 export default function SettingsPage() {
   const { onboarding, setOnboarding } = useAttendanceStore();
@@ -157,22 +38,13 @@ export default function SettingsPage() {
 
   const handleSave = () => {
     // Save via the store (which writes to localStorage and dispatches event)
-    setOnboarding({ ...onboarding, userName, semesterName, academicYear, startDate });
-
-    // Also directly persist to localStorage for redundancy to ensure cross-tab sync
-    try {
-      const existing = JSON.parse(localStorage.getItem('onboarding_data') || '{}');
-      localStorage.setItem(
-        'onboarding_data',
-        JSON.stringify({ ...existing, userName, semesterName, academicYear, startDate })
-      );
-      window.dispatchEvent(new Event('attendance-tool-store-change'));
-    } catch (e) {
-      console.warn('Failed to persist settings:', e);
-    }
+    const updatedOnboarding = { ...onboarding, userName, semesterName, academicYear, startDate };
+    setOnboarding(updatedOnboarding);
+    savePreference('onboarding_data', JSON.stringify(updatedOnboarding));
 
     setSaved(true);
     setHasUnsavedChanges(false);
+    showNativeNotification('Settings Saved', 'Your Acadex profile details were successfully updated.');
     setTimeout(() => setSaved(false), 3000);
   };
 
@@ -185,6 +57,7 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 max-w-2xl">
+      <Toaster position="top-center" richColors />
       {/* Header */}
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
@@ -262,40 +135,123 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Ollama Local AI Settings */}
-      <OllamaSettings />
-
-      {/* Data management */}
+       {/* Data management */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="px-5 py-4 border-b border-border">
           <h3 className="font-semibold text-foreground">Data Management</h3>
         </div>
         <div className="px-5 py-4 space-y-3">
+          {/* Export */}
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-foreground font-medium">Export Data</p>
-              <p className="text-xs text-muted-foreground">Download your attendance records as JSON</p>
+              <p className="text-sm text-foreground font-medium">Export Backup</p>
+              <p className="text-xs text-muted-foreground">Download complete academic & attendance backup JSON</p>
             </div>
             <button
               className="px-4 py-1.5 text-sm font-medium text-foreground rounded-lg border border-border bg-secondary hover:bg-muted transition-colors"
               onClick={() => {
-                const data = {
-                  onboarding: JSON.parse(localStorage.getItem('onboarding_data') || '{}'),
-                  overrides: JSON.parse(localStorage.getItem('attendance_overrides') || '[]'),
-                };
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'academicos-backup.json';
-                a.click();
-                URL.revokeObjectURL(url);
+                try {
+                  const data = {
+                    onboarding_data: JSON.parse(localStorage.getItem('onboarding_data') || '{}'),
+                    attendance_overrides: JSON.parse(localStorage.getItem('attendance_overrides') || '[]'),
+                    academic_events: JSON.parse(localStorage.getItem('academic_events') || '[]'),
+                    holidays_list: JSON.parse(localStorage.getItem('holidays_list') || '[]'),
+                    extra_classes: JSON.parse(localStorage.getItem('extra_classes') || '[]'),
+                    rescheduled_classes: JSON.parse(localStorage.getItem('rescheduled_classes') || '[]'),
+                    attendance_credits: JSON.parse(localStorage.getItem('attendance_credits') || '[]'),
+                    theme: localStorage.getItem('theme') || 'dark',
+                    selected_ollama_model: localStorage.getItem('selected_ollama_model') || '',
+                    OLLAMA_MODEL: localStorage.getItem('OLLAMA_MODEL') || '',
+                  };
+                  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = 'acadex-academicos-backup.json';
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  showNativeNotification('Export Complete', 'Your Acadex data backup was successfully exported.');
+                  toast.success('Backup exported successfully!');
+                } catch (e: any) {
+                  toast.error('Failed to export backup: ' + e.message);
+                }
               }}
             >
               Export
             </button>
           </div>
+          
           <div className="h-px bg-border" />
+
+          {/* Import */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-foreground font-medium">Import Backup</p>
+              <p className="text-xs text-muted-foreground">Restore complete academic & attendance backup JSON</p>
+            </div>
+            <div>
+              <input
+                type="file"
+                id="import-backup-file"
+                accept=".json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = async (event) => {
+                    try {
+                      const text = event.target?.result as string;
+                      const parsed = JSON.parse(text);
+                      
+                      if (!parsed || (typeof parsed !== 'object')) {
+                        throw new Error('Invalid backup file structure.');
+                      }
+                      
+                      const keysToRestore = [
+                        'onboarding_data',
+                        'attendance_overrides',
+                        'academic_events',
+                        'holidays_list',
+                        'extra_classes',
+                        'rescheduled_classes',
+                        'attendance_credits',
+                        'theme',
+                        'selected_ollama_model',
+                        'OLLAMA_MODEL'
+                      ];
+
+                      for (const key of keysToRestore) {
+                        if (parsed[key] !== undefined) {
+                          const valStr = typeof parsed[key] === 'string' ? parsed[key] : JSON.stringify(parsed[key]);
+                          savePreference(key, valStr);
+                        }
+                      }
+
+                      showNativeNotification('Import Success', 'Your Acadex configurations and schedules have been restored.');
+                      toast.success('Backup imported successfully! Reloading...');
+                      setTimeout(() => {
+                        window.location.reload();
+                      }, 1500);
+                    } catch (err: any) {
+                      toast.error('Failed to parse backup: ' + err.message);
+                    }
+                  };
+                  reader.readAsText(file);
+                }}
+              />
+              <button
+                className="px-4 py-1.5 text-sm font-medium text-foreground rounded-lg border border-border bg-secondary hover:bg-muted transition-colors"
+                onClick={() => document.getElementById('import-backup-file')?.click()}
+              >
+                Import
+              </button>
+            </div>
+          </div>
+
+          <div className="h-px bg-border" />
+
+          {/* Reset */}
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-rose-600 dark:text-rose-400 font-medium">Reset All Data</p>
@@ -305,9 +261,28 @@ export default function SettingsPage() {
               className="px-4 py-1.5 text-sm font-medium text-rose-600 dark:text-rose-400 rounded-lg border border-rose-500/20 hover:bg-rose-500/10 transition-colors"
               onClick={() => {
                 if (confirm('This will permanently delete all your attendance data. Are you sure?')) {
-                  localStorage.removeItem('onboarding_data');
-                  localStorage.removeItem('attendance_overrides');
+                  const keysToRemove = [
+                    'onboarding_data',
+                    'attendance_overrides',
+                    'academic_events',
+                    'holidays_list',
+                    'extra_classes',
+                    'rescheduled_classes',
+                    'attendance_credits',
+                    'theme',
+                    'supabase_semester_id'
+                  ];
+                  
+                  for (const key of keysToRemove) {
+                    localStorage.removeItem(key);
+                  }
+                  
                   window.dispatchEvent(new Event('attendance-tool-store-change'));
+                  showNativeNotification('App Reset Completed', 'All local data was successfully purged.');
+                  toast.success('App data successfully reset!');
+                  setTimeout(() => {
+                    window.location.reload();
+                  }, 1000);
                 }
               }}
             >

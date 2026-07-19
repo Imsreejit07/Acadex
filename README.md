@@ -24,59 +24,139 @@ An advanced, premium-designed university academic tracker and automated attendan
 
 ## 🛠️ Architecture & Tech Stack
 
+- **Desktop Runtime**: [Tauri 2.x](https://v2.tauri.app/) (Rust backend, WebView frontend)
 - **Framework**: [Next.js](https://nextjs.org/) (React, App Router)
 - **State Management**: Offline-first, reactive state sync engine using `window.localStorage` and `useSyncExternalStore`.
-- **Styling**: Vanilla CSS + Tailwind CSS utilities with semantic variable overrides (`src/app/globals.css`).
+- **PDF Engine**: pdf-extract (Rust native) + pdfjs-dist (TypeScript fallback) — both offline-capable
+- **AI Providers** (optional): Ollama (local), Gemini API, OpenAI API, Claude API — all interchangeable via provider interface
+- **Styling**: Vanilla CSS + Tailwind CSS utilities with semantic variable overrides
 - **Icons**: [Lucide React](https://lucide.dev/)
-- **Lint & Tooling**: pnpm package manager, TypeScript verification.
+- **Lint & Tooling**: pnpm package manager, TypeScript verification, Rust/Cargo
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Installation
 
 ### Prerequisites
 
-- Node.js (v18.x or above recommended)
-- `pnpm` package manager (`npm install -g pnpm`)
+- **Node.js** (v18.x or above recommended)
+- **pnpm** package manager (`npm install -g pnpm`)
+- **Rust toolchain** (for Tauri desktop build): `rustc 1.77+` and `cargo`
+  - Install from [rustup.rs](https://rustup.rs/)
 
-### Installation
+### Option 1: Desktop App (Tauri — Recommended)
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Imsreejit07/Acadex.git
-   cd Acadex
-   ```
+The Tauri desktop app runs fully offline with native PDF extraction.
 
-2. Install dependencies:
-   ```bash
-   pnpm install
-   ```
+```bash
+# 1. Clone the repository
+git clone https://github.com/Imsreejit07/Acadex.git
+cd Acadex
 
-3. Configure Environment Variables:
-   Create a `.env.local` file in the root directory:
-   ```env
-   # API keys if configuring AI Parse timetable integrations
-   NEXT_PUBLIC_APP_URL=http://localhost:3000
-   ```
+# 2. Install Node.js dependencies
+pnpm install
 
-4. Run the development server:
-   ```bash
-   pnpm run dev
-   ```
+# 3. Run in development mode
+pnpm tauri dev
+```
 
-5. Open [http://localhost:3000](http://localhost:3000) in your browser.
+For **production build**:
 
----
+```bash
+pnpm tauri build
+```
 
-## 🏗️ Production Build
+The installer will be placed in `src-tauri/target/release/bundle/`.
 
-To build the application for production:
+### Option 2: Web App (Next.js)
+
+The web version uses pdfjs-dist for PDF processing (also offline-capable):
+
+```bash
+# 1. Clone and install
+git clone https://github.com/Imsreejit07/Acadex.git
+cd Acadex
+pnpm install
+
+# 2. Run development server
+pnpm run dev
+
+# 3. Open http://localhost:3000
+```
+
+For **production web build**:
 
 ```bash
 pnpm run build
+pnpm start
 ```
 
-This compiles TypeScript checks, optimizes the assets, and generates static pages.
+---
+
+## ⚙️ Configuration
+
+### Environment Variables (.env.local)
+
+```env
+# URL for the application
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# ── Local AI (Ollama) ──────────────────────────────────
+# Optional: for correcting OCR typos & resolving ambiguities
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=llama3.2  # or any Ollama model
+
+# ── Cloud AI Providers (optional) ──────────────────────
+# These can replace Ollama without changing the pipeline
+GEMINI_API_KEY=your_gemini_api_key
+OPENAI_API_KEY=your_openai_api_key
+CLAUDE_API_KEY=your_claude_api_key
+```
+
+> **Note**: The parser works **fully offline** without any AI provider configured. AI providers are only used for low-confidence OCR corrections — never for full timetable parsing.
+
+### Offline-First Timetable Parsing
+
+The new deterministic 7-stage pipeline does NOT require internet:
+
+1. **PDF Processing** — Native Rust extraction (Tauri) or pdfjs-dist (Web)
+2. **Table Detection** — Coordinate-based geometry analysis
+3. **OCR** — PDF native text extraction with confidence scoring
+4. **Lookup Extraction** — Deterministic subject/faculty/slot dictionaries
+5. **Validation** — Hard gate: fails on unknown slots or missing data
+6. **Session Reconstruction** — Grid-based reconstruction with duration from coordinates
+7. **Classification** — Rules-based: PDF labels > user config > deterministic defaults
+
+An LLM (Ollama/Gemini/OpenAI/Claude) is only invoked when OCR confidence drops below threshold — and even then, only for the ambiguous cell, never the full timetable.
+
+---
+
+## 🏗️ Project Structure
+
+```
+src/
+├── app/              # Next.js app router pages
+├── features/         # Feature modules (timetable, attendance, etc.)
+├── lib/
+│   └── parser/       # ← NEW: Deterministic 7-stage parser pipeline
+│       ├── types.ts              # Core types & provider interfaces
+│       ├── pipeline.ts           # Stage orchestrator
+│       ├── compat.ts             # Frontend compatibility layer
+│       ├── providers/
+│       │   └── ollama-provider.ts # Ollama LLM provider (offline)
+│       └── stages/
+│           ├── stage1-*.ts       # PDF Processing
+│           ├── stage2-*.ts       # Table Detection
+│           ├── stage3-*.ts       # OCR
+│           ├── stage4-*.ts       # Lookup Extraction
+│           ├── stage5-*.ts       # Validation
+│           ├── stage6-*.ts       # Session Reconstruction
+│           └── stage7-*.ts       # Session Classification
+├── shared/          # Shared types, components, utilities
+└── src-tauri/       # Tauri Rust backend
+    └── src/
+        └── lib.rs   # Native PDF extraction with coordinates
+```
 
 ---
 

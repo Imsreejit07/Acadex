@@ -12,9 +12,12 @@ export default function Home() {
     async function checkUserStatus() {
       let targetPath = '/login';
       try {
+        const savedOnboarding = localStorage.getItem('onboarding_data');
+        const hasOnboarded = savedOnboarding ? JSON.parse(savedOnboarding)?.subjects?.length > 0 : false;
+
         const client = supabase;
         if (!client) {
-          targetPath = '/dashboard/onboarding';
+          targetPath = hasOnboarded ? '/dashboard' : '/dashboard/onboarding';
           return;
         }
 

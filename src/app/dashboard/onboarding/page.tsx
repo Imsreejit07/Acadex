@@ -225,52 +225,14 @@ export default function OnboardingPage() {
         toast.error(data.details || data.message || 'Connection test failed');
       }
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to connect to parser endpoint');
+      toast.error(err instanceof Error ? err.message : 'Failed to connect to Gemini API.');
     } finally {
       setIsTestingConnection(false);
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement> | React.MouseEvent) => {
-    const isTauri = typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ !== undefined || (window as any).__TAURI__ !== undefined);
-
-    if (isTauri) {
-      event.preventDefault();
-      setIsUploading(true);
-      setPipelineLog(null);
-      setRawMarkdown(undefined);
-
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const selectedModel = localStorage.getItem('selected_ollama_model') || 'qwen2.5:14b';
-        
-        // Pick and parse the file natively
-        const rawJson = await invoke<string>('parse_timetable_desktop', { selectedModel });
-        const parsed = JSON.parse(rawJson) as AiTimetableData;
-        
-        const subjectCount = parsed.subjects?.length ?? 0;
-        const entryCount = parsed.timetableEntries?.length ?? 0;
-
-        if (subjectCount === 0 && entryCount === 0) {
-          toast.warning('Ollama completed but found no timetable entries. Please check the PDF contents.');
-        } else {
-          toast.success(`Extracted ${subjectCount} subjects · ${entryCount} class slots`);
-        }
-
-        setUploadedFileName('timetable.pdf');
-        setAiData(parsed);
-        setCurrentStep(1);
-      } catch (error: any) {
-        console.error(error);
-        toast.error(error?.toString() || 'Failed to parse timetable via Ollama.');
-        setUploadedFileName(null);
-      } finally {
-        setIsUploading(false);
-      }
-      return;
-    }
-
-    const file = (event.target as HTMLInputElement).files?.[0];
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
 
     if (file.type !== 'application/pdf') {
@@ -294,7 +256,6 @@ export default function OnboardingPage() {
 
       const data = await response.json() as AiTimetableData & { error?: string; details?: string };
 
-      // Always capture pipeline log regardless of success/failure
       if (data.pipelineLog) setPipelineLog(data.pipelineLog);
       if (data.rawMarkdown) setRawMarkdown(data.rawMarkdown);
 
@@ -383,7 +344,6 @@ export default function OnboardingPage() {
 
             <div className="w-full md:w-auto shrink-0">
               <label 
-                onClick={handleFileUpload}
                 className="relative flex flex-col items-center justify-center w-full md:w-56 h-28 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-foreground/30 hover:bg-secondary/35 transition-all duration-200 group"
               >
                 <div className="flex flex-col items-center justify-center pt-5 pb-6 px-4 text-center">
@@ -414,10 +374,6 @@ export default function OnboardingPage() {
                   className="hidden"
                   onChange={handleFileUpload}
                   disabled={isUploading}
-                  onClick={(e) => {
-                    const isTauri = typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ !== undefined || (window as any).__TAURI__ !== undefined);
-                    if (isTauri) e.stopPropagation();
-                  }}
                 />
               </label>
             </div>
@@ -460,7 +416,7 @@ export default function OnboardingPage() {
           <div className="text-center space-y-1">
             <h3 className="text-lg font-bold text-foreground">Parsing Timetable</h3>
             <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-              Running OCR → Deterministic parser → AI (Ollama)...
+              Running Gemini AI parser...
             </p>
           </div>
         </div>

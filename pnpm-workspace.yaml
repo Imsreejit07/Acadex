@@ -1,5 +1,8 @@
 allowBuilds:
+  '@google/genai': true
   canvas: set this to true or false
+  esbuild: false
+  protobufjs: true
   sharp: set this to true or false
   unrs-resolver: set this to true or false
 ignoredBuiltDependencies:

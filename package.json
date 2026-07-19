@@ -9,11 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google/genai": "^2.12.0",
     "@opendataloader/pdf": "^2.4.7",
     "@supabase/ssr": "^0.12.1",
     "@supabase/supabase-js": "^2.110.3",
     "@tanstack/react-query": "^5.101.2",
-    "@tauri-apps/api": "^2.11.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.24.0",
@@ -36,6 +36,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "tsx": "^4.23.1",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

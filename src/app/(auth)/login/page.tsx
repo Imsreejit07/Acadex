@@ -123,6 +123,29 @@ export default function LoginPage() {
               'Sign In'
             )}
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const defaultOnboarding = {
+                userName: 'Offline Student',
+                semesterName: '',
+                academicYear: '',
+                startDate: '',
+                subjects: [],
+                timetableEntries: [],
+                onboardingCompletedAt: '',
+                midSemesterBackfilled: false,
+              };
+              localStorage.setItem('onboarding_data', JSON.stringify(defaultOnboarding));
+              localStorage.removeItem('attendance_overrides');
+              window.dispatchEvent(new Event('attendance-tool-store-change'));
+              window.location.href = '/dashboard/onboarding';
+            }}
+            className="w-full flex items-center justify-center gap-2 rounded-lg border border-border bg-secondary hover:bg-muted text-foreground px-4 py-2.5 text-xs font-semibold transition-colors mt-2"
+          >
+            Continue Offline
+          </button>
         </form>
 
         <p className="text-center text-xs text-muted-foreground">

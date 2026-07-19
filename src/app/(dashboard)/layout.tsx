@@ -23,7 +23,8 @@ import {
   Moon
 } from 'lucide-react';
 
-import { useAttendanceStore, initializeSqliteState } from '@/features/attendance/services/attendance-store';
+import { useAttendanceStore, initializeSqliteState, savePreference } from '@/features/attendance/services/attendance-store';
+import { supabase } from '@/shared/lib/supabase';
 
 
 const NAV_ITEMS = [
@@ -153,11 +154,15 @@ function Sidebar({
               </div>
             </div>
             <button
-              onClick={() => {
-                localStorage.removeItem('onboarding_data');
+              onClick={async () => {
+                // Clear all local state
+                const keys = ['onboarding_data', 'attendance_overrides', 'academic_events', 'holidays_list', 'extra_classes', 'rescheduled_classes', 'attendance_credits', 'supabase_semester_id'];
+                keys.forEach(k => localStorage.removeItem(k));
+                // Sign out from Supabase
+                await supabase.auth.signOut();
                 window.location.href = '/login';
               }}
-              title="Log Out"
+              title="Sign Out"
               className="p-2 rounded-lg text-muted-foreground hover:text-rose-500 hover:bg-secondary transition-colors shrink-0"
             >
               <LogOut size={16} />
@@ -177,21 +182,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   useEffect(() => {
     initializeSqliteState();
-    const saved = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const initial = saved || (systemDark ? 'dark' : 'light');
-    setTheme(initial);
-    if (initial === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    const syncTheme = () => {
+      const saved = localStorage.getItem('theme') as 'light' | 'dark' | null;
+      const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const initial = saved || (systemDark ? 'dark' : 'light');
+      setTheme(initial);
+      if (initial === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    };
+    syncTheme();
+    window.addEventListener('attendance-tool-store-change', syncTheme);
+    window.addEventListener('storage', syncTheme);
+    return () => {
+      window.removeEventListener('attendance-tool-store-change', syncTheme);
+      window.removeEventListener('storage', syncTheme);
+    };
   }, []);
 
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
     setTheme(next);
-    localStorage.setItem('theme', next);
+    savePreference('theme', next);
     if (next === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
