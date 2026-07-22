@@ -123,6 +123,28 @@ export default function Stepper({
     };
     localStorage.setItem('onboarding_data', JSON.stringify(onboardingCompleteData));
     window.dispatchEvent(new Event('attendance-tool-store-change'));
+
+    // Persist immediately to Supabase database
+    import('@/shared/lib/supabase-service').then(({ saveStateToSupabase }) => {
+      const overrides = JSON.parse(localStorage.getItem('attendance_overrides') || '[]');
+      const events = JSON.parse(localStorage.getItem('academic_events') || '[]');
+      const holidays = JSON.parse(localStorage.getItem('holidays_list') || '[]');
+      const extraClasses = JSON.parse(localStorage.getItem('extra_classes') || '[]');
+      const rescheduledClasses = JSON.parse(localStorage.getItem('rescheduled_classes') || '[]');
+      const attendanceCredits = JSON.parse(localStorage.getItem('attendance_credits') || '[]');
+      saveStateToSupabase({
+        onboarding: onboardingCompleteData,
+        overrides,
+        events,
+        holidays,
+        extraClasses,
+        rescheduledClasses,
+        attendanceCredits,
+      }).then(() => {
+        console.log('[Acadex Onboarding] Onboarding state persisted directly to Supabase database.');
+      });
+    });
+
     onNext();
   };
 

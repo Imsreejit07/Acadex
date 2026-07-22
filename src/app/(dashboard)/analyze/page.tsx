@@ -424,6 +424,27 @@ export default function AnalyzePDFPage() {
 
     setOnboarding(updatedOnboarding);
     toast.success('Successfully imported timetable to your active semester!');
+
+    // Persist immediately to Supabase database
+    import('@/shared/lib/supabase-service').then(({ saveStateToSupabase }) => {
+      const overrides = JSON.parse(localStorage.getItem('attendance_overrides') || '[]');
+      const events = JSON.parse(localStorage.getItem('academic_events') || '[]');
+      const holidays = JSON.parse(localStorage.getItem('holidays_list') || '[]');
+      const extraClasses = JSON.parse(localStorage.getItem('extra_classes') || '[]');
+      const rescheduledClasses = JSON.parse(localStorage.getItem('rescheduled_classes') || '[]');
+      const attendanceCredits = JSON.parse(localStorage.getItem('attendance_credits') || '[]');
+      saveStateToSupabase({
+        onboarding: updatedOnboarding,
+        overrides,
+        events,
+        holidays,
+        extraClasses,
+        rescheduledClasses,
+        attendanceCredits,
+      }).then(() => {
+        console.log('[Acadex Analyze] Timetable import persisted directly to Supabase database.');
+      });
+    });
   };
 
   const handleDragOver = (e: React.DragEvent) => {

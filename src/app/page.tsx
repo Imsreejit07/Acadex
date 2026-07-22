@@ -12,42 +12,47 @@ export default function Home() {
     async function checkUserStatus() {
       let targetPath = '/login';
       try {
-        const savedOnboarding = localStorage.getItem('onboarding_data');
-        const hasOnboarded = savedOnboarding ? JSON.parse(savedOnboarding)?.subjects?.length > 0 : false;
-
+        console.log('[Acadex Root Guard] Checking authenticated user session...');
         const client = supabase;
         if (!client) {
-          targetPath = hasOnboarded ? '/dashboard' : '/dashboard/onboarding';
+          const savedOnboarding = localStorage.getItem('onboarding_data');
+          const hasOnboarded = savedOnboarding ? JSON.parse(savedOnboarding)?.subjects?.length > 0 : false;
+          targetPath = hasOnboarded ? '/dashboard' : '/onboarding';
           return;
         }
 
         const { data, error: authError } = await client.auth.getUser();
-        if (authError) {
-          // If auth fails or session expired, redirect to login
+        if (authError || !data?.user) {
+          console.log('[Acadex Root Guard] No active session found. Redirecting to /login');
           targetPath = '/login';
           return;
         }
 
-        const user = data?.user;
-        
-        if (user) {
-          // Check if user has an active semester
-          const { data: semData, error: dbError } = await client
-            .from('semesters')
-            .select('id')
-            .eq('user_id', user.id)
-            .eq('status', 'ACTIVE')
-            .maybeSingle(); // maybeSingle is safer than single and doesn't throw on empty
+        const user = data.user;
+        console.log('[Acadex Root Guard] User authenticated:', user.email || user.id);
 
-          if (dbError) {
-            throw dbError;
-          }
+        // Import and execute full cloud hydration before determining navigation path
+        const { loadStateFromSupabase } = await import('@/shared/lib/supabase-service');
+        const hydrated = await loadStateFromSupabase();
 
-          targetPath = semData ? '/dashboard' : '/dashboard/onboarding';
+        // Double check database active semester directly
+        const { data: semData } = await client
+          .from('semesters')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('status', 'ACTIVE')
+          .maybeSingle();
+
+        if (semData || hydrated) {
+          console.log('[Acadex Root Guard] Active academic semester restored. Navigating to /dashboard');
+          targetPath = '/dashboard';
+        } else {
+          console.log('[Acadex Root Guard] No active semester found in database. Navigating to /onboarding');
+          targetPath = '/onboarding';
         }
       } catch (error: any) {
-        console.error('Error checking user status:', error?.message || error);
-        targetPath = '/dashboard/onboarding';
+        console.error('[Acadex Root Guard] Error checking user status:', error?.message || error);
+        targetPath = '/login';
       } finally {
         setRedirectPath(targetPath);
         setLoading(false);

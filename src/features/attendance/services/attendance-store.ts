@@ -224,11 +224,24 @@ function writeJson(key: string, value: unknown) {
 }
 
 function subscribe(callback: () => void) {
+  const handleStorageChange = (e: StorageEvent) => {
+    // Ignore non-app-state keys like theme
+    if (e.key && ['theme', 'supabase_semester_id'].includes(e.key)) return;
+    // Ignore empty onboarding payloads dispatched by unhydrated tabs
+    if (e.key === ONBOARDING_KEY && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if (!parsed.subjects || parsed.subjects.length === 0) return;
+      } catch {}
+    }
+    callback();
+  };
+
   window.addEventListener(STORE_EVENT, callback);
-  window.addEventListener('storage', callback);
+  window.addEventListener('storage', handleStorageChange);
   return () => {
     window.removeEventListener(STORE_EVENT, callback);
-    window.removeEventListener('storage', callback);
+    window.removeEventListener('storage', handleStorageChange);
   };
 }
 

@@ -257,6 +257,12 @@ export async function saveStateToSupabase(state: {
     const user = await getCurrentUser();
     if (!user) return;
 
+    // PROTECTION: Do not write empty default state to database if state has no subjects or timetable entries
+    if (!state.onboarding?.semesterName && (!state.onboarding?.subjects || state.onboarding.subjects.length === 0)) {
+      console.warn('[Acadex Persistence] Safeguard triggered: Aborting sync of empty onboarding state to Supabase.');
+      return;
+    }
+
     let semesterId = localStorage.getItem('supabase_semester_id');
 
     // Upsert semester
