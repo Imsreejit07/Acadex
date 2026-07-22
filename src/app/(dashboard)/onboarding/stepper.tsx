@@ -299,7 +299,7 @@ function Step1({
         />
       </div>
       
-      <div className="grid grid-cols-2 gap-3 space-y-2">
+      <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="text-sm font-medium">Academic Year (Optional)</label>
           <input
@@ -319,6 +319,30 @@ function Step1({
             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary transition-colors"
           />
         </div>
+      </div>
+
+      <div className="space-y-1.5 pt-2 border-t border-border">
+        <label className="text-sm font-medium text-foreground flex items-center justify-between">
+          <span>Gemini API Key (Optional BYOK)</span>
+          <span className="text-xs text-muted-foreground font-normal">Use your own AI key</span>
+        </label>
+        <input
+          type="password"
+          value={typeof window !== 'undefined' ? (localStorage.getItem('custom_gemini_api_key') || '') : ''}
+          onChange={(e) => {
+            const val = e.target.value.trim();
+            if (val) {
+              localStorage.setItem('custom_gemini_api_key', val);
+            } else {
+              localStorage.removeItem('custom_gemini_api_key');
+            }
+          }}
+          placeholder="AIzaSy... (Leave blank for app default key)"
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary transition-colors font-mono"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          You can also add or validate your personal API key later in Settings.
+        </p>
       </div>
       
       <button 

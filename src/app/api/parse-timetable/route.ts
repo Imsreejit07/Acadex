@@ -25,8 +25,11 @@ export async function POST(request: Request) {
 
   // Handle PDF upload
   try {
+    const customApiKey = (request.headers.get('x-gemini-api-key') || '').trim();
     const formData = await request.formData();
     const file = formData.get('file') as File;
+    const bodyApiKey = (formData.get('apiKey') as string || '').trim();
+    const finalApiKey = customApiKey || bodyApiKey || undefined;
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -44,7 +47,7 @@ export async function POST(request: Request) {
     }
 
     const bytes = await file.arrayBuffer();
-    const result = await parseTimetableFromBuffer(bytes, file.name);
+    const result = await parseTimetableFromBuffer(bytes, file.name, finalApiKey);
     return NextResponse.json(result);
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);

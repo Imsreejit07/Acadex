@@ -228,7 +228,8 @@ export async function loadStateFromSupabase(): Promise<boolean> {
         onboarding.userName = meta.userName as string;
       }
 
-      // Restore auxiliary stores
+      // Restore auxiliary stores & custom BYOK API key
+      if (meta.geminiApiKey) localStorage.setItem('custom_gemini_api_key', meta.geminiApiKey as string);
       if (meta.overrides) localStorage.setItem('attendance_overrides', JSON.stringify(meta.overrides));
       if (meta.events) localStorage.setItem('academic_events', JSON.stringify(meta.events));
       if (meta.holidays) localStorage.setItem('holidays_list', JSON.stringify(meta.holidays));
@@ -340,11 +341,14 @@ export async function saveStateToSupabase(state: {
       };
     }
 
+    const customGeminiKey = typeof window !== 'undefined' ? localStorage.getItem('custom_gemini_api_key') : null;
+
     const meta = {
       userName: state.onboarding.userName,
       subjects: state.onboarding.subjects, // Primary JSON backup fallback
       timetableEntries: state.onboarding.timetableEntries,
       subjectExtras,
+      geminiApiKey: customGeminiKey || undefined,
       onboardingCompletedAt: state.onboarding.onboardingCompletedAt,
       midSemesterBackfilled: state.onboarding.midSemesterBackfilled,
       overrides: state.overrides,

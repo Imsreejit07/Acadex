@@ -589,16 +589,20 @@ export function rebuildTimetableFromGrid(
 
 export async function parseTimetableFromBuffer(
   bytes: ArrayBuffer,
-  fileName = 'timetable.pdf'
+  fileName = 'timetable.pdf',
+  customApiKey?: string
 ): Promise<TimetableParseResult> {
   const globalStart = Date.now();
   const fileSizeKB = Math.round(bytes.byteLength / 1024);
+
+  const cleanCustomKey = customApiKey?.replace(/^\uFEFF/, '').trim();
+  const apiKey = cleanCustomKey || process.env.GEMINI_API_KEY?.replace(/^\uFEFF/, '').trim();
 
   const log: PipelineLog = {
     steps: [],
     parserType: 'gemini',
     parserModel: 'gemini-2.5-flash-lite',
-    parserReason: 'Gemini 2D Grid Extraction + Deterministic Reconstruction Pipeline',
+    parserReason: cleanCustomKey ? 'User Custom Gemini API Key (BYOK) + 2D Grid Pipeline' : 'App Default Gemini API Key + 2D Grid Pipeline',
     rawMarkdownChars: 0,
     tableRowsDetected: 0,
     subjectCatalogEntries: 0,
@@ -618,13 +622,14 @@ export async function parseTimetableFromBuffer(
 
   let t = Date.now();
   addStep('PDF received', 'ok', `${fileName} · ${fileSizeKB} KB`, t);
-
-  const apiKey = process.env.GEMINI_API_KEY?.replace(/^\uFEFF/, '').trim();
+  if (cleanCustomKey) {
+    addStep('BYOK Active', 'ok', 'Using user-provided custom Gemini API Key', t);
+  }
 
   if (!apiKey) {
-    addStep('Gemini API', 'error', 'GEMINI_API_KEY is not configured in Vercel environment variables', Date.now());
+    addStep('Gemini API', 'error', 'No Gemini API key provided or configured', Date.now());
     log.processingMs = Date.now() - globalStart;
-    throw new Error('GEMINI_API_KEY is not set. Please configure GEMINI_API_KEY in your Vercel Environment Variables.');
+    throw new Error('Gemini API Key missing. Please provide your personal API key in Settings or configure GEMINI_API_KEY.');
   }
 
   try {

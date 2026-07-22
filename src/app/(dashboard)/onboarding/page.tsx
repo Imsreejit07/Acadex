@@ -248,9 +248,16 @@ export default function OnboardingPage() {
     const formData = new FormData();
     formData.append('file', file);
 
+    const customApiKey = (localStorage.getItem('custom_gemini_api_key') || '').trim();
+    const headers: Record<string, string> = {};
+    if (customApiKey) {
+      headers['x-gemini-api-key'] = customApiKey;
+    }
+
     try {
       const response = await fetch('/api/parse-timetable', {
         method: 'POST',
+        headers,
         body: formData,
       });
 

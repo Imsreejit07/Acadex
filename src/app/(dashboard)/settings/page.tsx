@@ -1,9 +1,225 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { CheckCircle, AlertTriangle, RefreshCw, Cpu } from 'lucide-react';
+import { CheckCircle, AlertTriangle, RefreshCw, Cpu, Eye, EyeOff, Key, ShieldCheck, XCircle } from 'lucide-react';
 import { useAttendanceStore, savePreference, showNativeNotification } from '@/features/attendance/services/attendance-store';
 import { toast, Toaster } from 'sonner';
+
+function GeminiKeyCard() {
+  const [apiKey, setApiKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    const savedKey = localStorage.getItem('custom_gemini_api_key') || '';
+    setApiKey(savedKey);
+  }, []);
+
+  const handleValidateKey = async () => {
+    if (!apiKey.trim()) {
+      toast.error('Please enter an API key to validate.');
+      return;
+    }
+
+    setIsValidating(true);
+    setValidationResult(null);
+
+    try {
+      const res = await fetch('/api/validate-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: apiKey.trim() }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setValidationResult({ success: true, message: data.message });
+        toast.success('Gemini API Key validated successfully!');
+      } else {
+        setValidationResult({ success: false, message: data.error || 'Validation failed.' });
+        toast.error(data.error || 'Validation failed.');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setValidationResult({ success: false, message: msg });
+      toast.error(`Validation error: ${msg}`);
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  const handleSaveKey = () => {
+    const cleanKey = apiKey.trim();
+    if (!cleanKey) {
+      toast.error('Please enter a valid API key.');
+      return;
+    }
+
+    localStorage.setItem('custom_gemini_api_key', cleanKey);
+    window.dispatchEvent(new Event('attendance-tool-store-change'));
+
+    // Force sync to Supabase metadata
+    import('@/shared/lib/supabase-service').then(({ saveStateToSupabase }) => {
+      const savedOnboarding = JSON.parse(localStorage.getItem('onboarding_data') || '{}');
+      const overrides = JSON.parse(localStorage.getItem('attendance_overrides') || '[]');
+      const events = JSON.parse(localStorage.getItem('academic_events') || '[]');
+      const holidays = JSON.parse(localStorage.getItem('holidays_list') || '[]');
+      const extraClasses = JSON.parse(localStorage.getItem('extra_classes') || '[]');
+      const rescheduledClasses = JSON.parse(localStorage.getItem('rescheduled_classes') || '[]');
+      const attendanceCredits = JSON.parse(localStorage.getItem('attendance_credits') || '[]');
+      saveStateToSupabase({
+        onboarding: savedOnboarding,
+        overrides,
+        events,
+        holidays,
+        extraClasses,
+        rescheduledClasses,
+        attendanceCredits,
+      });
+    });
+
+    toast.success('Custom Gemini API Key saved and activated!');
+  };
+
+  const handleResetToDefault = () => {
+    localStorage.removeItem('custom_gemini_api_key');
+    setApiKey('');
+    setValidationResult(null);
+    window.dispatchEvent(new Event('attendance-tool-store-change'));
+
+    // Force sync to Supabase metadata
+    import('@/shared/lib/supabase-service').then(({ saveStateToSupabase }) => {
+      const savedOnboarding = JSON.parse(localStorage.getItem('onboarding_data') || '{}');
+      const overrides = JSON.parse(localStorage.getItem('attendance_overrides') || '[]');
+      const events = JSON.parse(localStorage.getItem('academic_events') || '[]');
+      const holidays = JSON.parse(localStorage.getItem('holidays_list') || '[]');
+      const extraClasses = JSON.parse(localStorage.getItem('extra_classes') || '[]');
+      const rescheduledClasses = JSON.parse(localStorage.getItem('rescheduled_classes') || '[]');
+      const attendanceCredits = JSON.parse(localStorage.getItem('attendance_credits') || '[]');
+      saveStateToSupabase({
+        onboarding: savedOnboarding,
+        overrides,
+        events,
+        holidays,
+        extraClasses,
+        rescheduledClasses,
+        attendanceCredits,
+      });
+    });
+
+    toast.success('Reset to App Default Gemini API Key.');
+  };
+
+  const isCustomKeyActive = Boolean(apiKey.trim());
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-foreground flex items-center gap-2">
+            <Key size={16} className="text-primary" />
+            Bring Your Own API Key (BYOK)
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Use your personal Google Gemini API key for timetable parsing.
+          </p>
+        </div>
+        <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border flex items-center gap-1.5 ${
+          isCustomKeyActive
+            ? 'bg-purple-500/10 text-purple-600 dark:text-purple-300 border-purple-500/20'
+            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border-emerald-500/20'
+        }`}>
+          <ShieldCheck size={12} />
+          {isCustomKeyActive ? 'BYOK Custom Key Active' : 'App Default Active'}
+        </span>
+      </div>
+
+      <div className="px-5 py-5 space-y-4">
+        <div>
+          <label className="block text-xs text-muted-foreground mb-1.5 font-medium">
+            Google Gemini API Key
+          </label>
+          <div className="relative flex items-center">
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                setValidationResult(null);
+              }}
+              placeholder="AIzaSy..."
+              className="w-full pl-3 pr-10 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground focus:outline-none focus:border-foreground transition-colors placeholder:text-muted-foreground/50 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(!showKey)}
+              className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors"
+              title={showKey ? 'Hide API key' : 'Show API key'}
+            >
+              {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            Get your free Gemini API key from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-semibold">Google AI Studio</a>.
+          </p>
+        </div>
+
+        {validationResult && (
+          <div className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
+            validationResult.success
+              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-300'
+              : 'bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-300'
+          }`}>
+            {validationResult.success ? (
+              <CheckCircle size={14} className="shrink-0 mt-0.5 text-emerald-500" />
+            ) : (
+              <XCircle size={14} className="shrink-0 mt-0.5 text-red-500" />
+            )}
+            <span>{validationResult.message}</span>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2 pt-2">
+          <button
+            type="button"
+            onClick={handleValidateKey}
+            disabled={isValidating || !apiKey.trim()}
+            className="px-4 py-2 text-xs font-semibold rounded-lg bg-secondary hover:bg-secondary/80 border border-border text-foreground transition-colors flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {isValidating ? (
+              <>
+                <RefreshCw size={13} className="animate-spin" />
+                Validating...
+              </>
+            ) : (
+              'Validate Key'
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSaveKey}
+            disabled={!apiKey.trim()}
+            className="px-4 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            Save Key
+          </button>
+
+          {isCustomKeyActive && (
+            <button
+              type="button"
+              onClick={handleResetToDefault}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-300 border border-rose-500/20 hover:bg-rose-500/20 transition-colors ml-auto"
+            >
+              Reset to App Default
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Local settings are handled via web client.
 
@@ -116,6 +332,9 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {/* Bring Your Own API Key (BYOK) Card */}
+      <GeminiKeyCard />
 
       {/* Info card */}
       <div className="rounded-xl border border-border bg-secondary/50 p-5">
