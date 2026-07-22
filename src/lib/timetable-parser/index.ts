@@ -522,36 +522,60 @@ export async function parseTimetableFromBuffer(
     t = Date.now();
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-lite',
-      contents: [
-        {
-          role: 'user',
-          parts: [
+    const modelsToTry = [
+      'gemini-2.0-flash',
+      'gemini-1.5-flash',
+      'gemini-2.5-flash',
+      'gemini-1.5-pro',
+    ];
+
+    let rawText = '';
+    let lastError: unknown = null;
+    let usedModel = '';
+
+    for (const modelName of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
             {
-              inlineData: {
-                mimeType: 'application/pdf',
-                data: base64Pdf,
-              },
-            },
-            {
-              text: RAW_GRID_EXTRACTION_PROMPT,
+              role: 'user',
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'application/pdf',
+                    data: base64Pdf,
+                  },
+                },
+                {
+                  text: RAW_GRID_EXTRACTION_PROMPT,
+                },
+              ],
             },
           ],
-        },
-      ],
-      config: {
-        temperature: 0,
-        maxOutputTokens: 8192,
-      },
-    });
+          config: {
+            temperature: 0,
+            maxOutputTokens: 8192,
+          },
+        });
 
-    const rawText = response.text;
-    if (!rawText) {
-      throw new Error('Gemini returned an empty response');
+        if (response.text) {
+          rawText = response.text;
+          usedModel = modelName;
+          break;
+        }
+      } catch (err) {
+        lastError = err;
+        console.warn(`Model ${modelName} failed in timetable-parser, trying next model...`, err);
+      }
     }
+
+    if (!rawText) {
+      throw lastError || new Error('All Gemini model fallbacks failed to respond');
+    }
+
     log.rawMarkdownChars = rawText.length;
-    addStep('2D Grid Extraction', 'ok', `${rawText.length.toLocaleString()} chars received`, t);
+    addStep('2D Grid Extraction', 'ok', `${rawText.length.toLocaleString()} chars received via ${usedModel}`, t);
 
     t = Date.now();
     const rawJson = parseLLMJson(rawText) as {

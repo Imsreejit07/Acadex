@@ -10,3 +10,9 @@ venv
 __pycache__
 *.pyc
 .git
+Acadex
+_reference_acadex
+*.pdf
+*.xlsx
+*.log
+tsconfig.tsbuildinfo
