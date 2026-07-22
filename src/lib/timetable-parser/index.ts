@@ -139,10 +139,10 @@ Return ONLY a valid JSON object matching this exact shape:
   "columnHeaders": [
     {
       "colIndex": 1,
-      "startTime": "09:00",
-      "endTime": "09:55",
+      "startTime": "10:00",
+      "endTime": "10:55",
       "isBreak": false,
-      "label": "9:00-9:55"
+      "label": "10:00-10:55"
     }
   ],
   "gridRows": [
@@ -167,10 +167,13 @@ Return ONLY a valid JSON object matching this exact shape:
 }
 
 ### EXTRACTION INSTRUCTIONS:
-1. "columnHeaders": Identify all time columns from left to right. Extract start/end times in 24h format (HH:mm). Mark lunch/breaks as "isBreak": true.
-2. "gridRows": Scan each day (MONDAY to SUNDAY). For every non-empty cell under column header "colIndex", extract the raw cell text (e.g. "G", "CS101", or full subject name). Do not guess or modify cell contents.
+1. "columnHeaders": Identify all time columns from left to right. colIndex 1 MUST be strictly the FIRST time period column printed in the table header. Ignore any "Day/Time" label column on the far left.
+   - Read the EXACT start and end times AS PRINTED in the PDF table header row for each column.
+   - Do NOT invent or default to 09:00 if the first period in the PDF table actually starts at 10:00.
+   - Extract start/end times in 24h format (HH:mm). Mark lunch/breaks as "isBreak": true.
+2. "gridRows": Scan each day (MONDAY to SUNDAY). For every non-empty cell under time column "colIndex", extract the raw cell text (e.g. "G", "CS101", or full subject name). The colIndex MUST match the exact column index from "columnHeaders".
 3. "subjectCatalog": Extract the subject/slot lookup legend table if present. Map every slot code (e.g., "G", "H", "CS101") to its full subject name, course code, and faculty.
-4. DO NOT do time math, DO NOT merge cells across columns, DO NOT invent slots. Output ONLY raw grid coordinates and catalog data.`;
+4. DO NOT shift time slots, DO NOT alter header times, DO NOT invent slots. Output ONLY raw grid coordinates and catalog data.`;
 
 // ─── Test Connection Handler ──────────────────────────────────────────────
 
@@ -586,9 +589,22 @@ export async function parseTimetableFromBuffer(
       subjectCatalog?: SlotCatalogEntry[];
     };
 
+    let rawHeaders = rawJson.columnHeaders || [];
+    let rawRows = rawJson.gridRows || [];
+
+    // Normalize colIndex if OCR output is 0-indexed (e.g. colIndex: 0)
+    const minCol = rawHeaders.reduce((min, h) => (h.colIndex < min ? h.colIndex : min), Infinity);
+    if (minCol === 0) {
+      rawHeaders = rawHeaders.map(h => ({ ...h, colIndex: h.colIndex + 1 }));
+      rawRows = rawRows.map(r => ({
+        ...r,
+        cells: (r.cells || []).map(c => ({ ...c, colIndex: c.colIndex + 1 })),
+      }));
+    }
+
     const detectedGrid: DetectedGrid = {
-      headers: rawJson.columnHeaders || [],
-      rows: rawJson.gridRows || [],
+      headers: rawHeaders,
+      rows: rawRows,
       totalOccupiedCells: 0,
     };
     for (const r of detectedGrid.rows) {
