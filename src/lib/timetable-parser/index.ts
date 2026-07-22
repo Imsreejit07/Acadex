@@ -508,10 +508,12 @@ export async function parseTimetableFromBuffer(
   let t = Date.now();
   addStep('PDF received', 'ok', `${fileName} · ${fileSizeKB} KB`, t);
 
-  if (!GEMINI_API_KEY) {
-    addStep('Gemini API', 'error', 'GEMINI_API_KEY is not configured', Date.now());
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    addStep('Gemini API', 'error', 'GEMINI_API_KEY is not configured in Vercel environment variables', Date.now());
     log.processingMs = Date.now() - globalStart;
-    throw new Error('GEMINI_API_KEY is not set. Please configure it in your environment variables.');
+    throw new Error('GEMINI_API_KEY is not set. Please configure GEMINI_API_KEY in your Vercel Environment Variables.');
   }
 
   try {
@@ -520,7 +522,7 @@ export async function parseTimetableFromBuffer(
     addStep('PDF encoded', 'ok', `${base64Pdf.length.toLocaleString()} base64 chars`, t);
 
     t = Date.now();
-    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+    const ai = new GoogleGenAI({ apiKey });
 
     const modelsToTry = [
       'gemini-2.0-flash',
