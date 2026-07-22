@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, 
   Legend, Line, BarChart, Bar, Cell, PieChart, Pie 
@@ -42,6 +42,12 @@ const TOOLTIP_STYLE = {
 // ─── Analytics Page ────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const { 
     onboarding, lectures, subjectSummaries, overallStats, isBeforeStartDate, 
     events, holidays, extraClasses, attendanceCredits, isHydrated 
@@ -49,11 +55,11 @@ export default function AnalyticsPage() {
 
   const hasSubjects = (onboarding.subjects?.length ?? 0) > 0 || (onboarding.timetableEntries?.length ?? 0) > 0 || subjectSummaries.length > 0;
 
-  if (!isHydrated) {
+  if (!mounted || !isHydrated) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 max-w-md mx-auto">
         <div className="h-10 w-10 rounded-full border-2 border-border border-t-primary animate-spin" />
-        <p className="text-xs text-muted-foreground font-semibold">Hydrating Analytics Data from Supabase...</p>
+        <p className="text-xs text-muted-foreground font-semibold">Loading Analytics Data...</p>
       </div>
     );
   }

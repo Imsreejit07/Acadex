@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { 
   AlertTriangle, CheckCircle, XCircle, Clock, Sparkles, 
@@ -86,6 +86,12 @@ function getSubjectColor(subject: SubjectConfig, index: number): string {
 }
 
 export default function DashboardPage() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const {
     onboarding,
     lectures,
@@ -220,7 +226,7 @@ export default function DashboardPage() {
 
   const hasSubjectsOrTimetable = (onboarding.subjects?.length ?? 0) > 0 || (onboarding.timetableEntries?.length ?? 0) > 0 || subjectSummaries.length > 0;
 
-  if (!isHydrated) {
+  if (!mounted || !isHydrated) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 max-w-md mx-auto">
         <div className="h-10 w-10 rounded-full border-2 border-border border-t-primary animate-spin" />
