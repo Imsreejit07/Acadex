@@ -316,13 +316,8 @@ export function getLectures(
   const startDateStr = onboarding.startDate || defaultPastStart;
 
   let start = dateOnly(startDateStr);
-  let end = dateOnly(formatDate(today));
-  if (end < start) {
-    // If start date is in the future, project 14 days forward from start date
-    const futureEnd = new Date(start);
-    futureEnd.setDate(futureEnd.getDate() + 14);
-    end = dateOnly(formatDate(futureEnd));
-  }
+  const futureDate = new Date(today.getTime() + 14 * 86400000);
+  let end = dateOnly(formatDate(futureDate));
 
   const todayDateStr = formatDate(today);
   const overrideMap = new Map(overrides.map(override => [override.lectureId, override]));

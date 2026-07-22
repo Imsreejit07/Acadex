@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { 
   Calendar, Clock, Trash2, Plus, Sparkles, BookOpen, 
-  Award, ShieldCheck, HelpCircle, Layers, CalendarDays, RefreshCw, Info
+  Award, ShieldCheck, HelpCircle, Layers, CalendarDays, RefreshCw, Info, ArrowLeftRight
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { 
@@ -12,7 +12,7 @@ import {
 
 export default function SemesterPage() {
   const { 
-    onboarding, subjects, lectures,
+    onboarding, subjects, lectures, setOnboarding,
     holidays, setHolidays,
     extraClasses, setExtraClasses,
     rescheduledClasses, setRescheduledClasses,
@@ -20,7 +20,7 @@ export default function SemesterPage() {
     isFullyHydrated
   } = useHydratedStore();
 
-  const [activeTab, setActiveTab] = useState<'HOLIDAYS' | 'EXTRA_CLASSES' | 'RESCHEDULE' | 'CREDITS'>('HOLIDAYS');
+  const [activeTab, setActiveTab] = useState<'HOLIDAYS' | 'EXTRA_CLASSES' | 'RESCHEDULE' | 'SWAP_SLOTS' | 'CREDITS'>('HOLIDAYS');
 
   // Form states - Holiday
   const [hTitle, setHTitle] = useState('');
@@ -42,12 +42,17 @@ export default function SemesterPage() {
   const [ecAttendance, setEcAttendance] = useState<'PRESENT' | 'ABSENT' | 'CANCELLED'>('PRESENT');
 
   // Form states - Reschedule
+  const [rcMode, setRcMode] = useState<'TEMPORARY' | 'PERMANENT'>('TEMPORARY');
   const [rcOriginalId, setRcOriginalId] = useState('');
   const [rcNewDate, setRcNewDate] = useState('');
   const [rcNewStartTime, setRcNewStartTime] = useState('09:00');
   const [rcNewEndTime, setRcNewEndTime] = useState('10:00');
   const [rcReason, setRcReason] = useState('');
   const [rcAttendance, setRcAttendance] = useState<'PRESENT' | 'ABSENT' | 'CANCELLED'>('PRESENT');
+
+  // Form states - Swap Slots
+  const [swapSlotAIdx, setSwapSlotAIdx] = useState<string>('');
+  const [swapSlotBIdx, setSwapSlotBIdx] = useState<string>('');
 
   // Form states - Credits
   const [cSubject, setCSubject] = useState('');
@@ -56,6 +61,34 @@ export default function SemesterPage() {
   const [cDate, setCDate] = useState('');
   const [cApprovedBy, setCApprovedBy] = useState('');
   const [cNotes, setCNotes] = useState('');
+
+  // Preload all available reschedule targets (Master timetable slots + generated lectures)
+  const rescheduleOptions = useMemo(() => {
+    const list: Array<{ id: string; label: string; subjectName: string; type: 'TT' | 'LEC'; entryIdx?: number }> = [];
+
+    // Master recurring timetable slots
+    (onboarding.timetableEntries || []).forEach((entry, idx) => {
+      list.push({
+        id: `tt|${idx}`,
+        label: `[Timetable] ${entry.day}: ${entry.subjectName} (${entry.startTime} - ${entry.endTime})`,
+        subjectName: entry.subjectName,
+        type: 'TT',
+        entryIdx: idx,
+      });
+    });
+
+    // Generated lectures (past & upcoming)
+    lectures.slice(0, 30).forEach(l => {
+      list.push({
+        id: `lec|${l.id}`,
+        label: `[Lecture] ${l.date}: ${l.subjectName} (${l.startTime} - ${l.endTime})`,
+        subjectName: l.subjectName,
+        type: 'LEC',
+      });
+    });
+
+    return list;
+  }, [onboarding.timetableEntries, lectures]);
 
   const handleAddHoliday = (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,7 +123,6 @@ export default function SemesterPage() {
     const newExtra: ExtraClass = {
       id: Math.random().toString(36).substr(2, 9),
       subjectName: ecSubject,
-      faculty: ecFaculty || undefined,
       date: ecDate,
       startTime: ecStartTime,
       endTime: ecEndTime,
@@ -108,14 +140,63 @@ export default function SemesterPage() {
 
   const handleAddReschedule = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!rcOriginalId || !rcNewDate) {
-      toast.error('Please select Original Lecture and New Date');
+    if (!rcOriginalId) {
+      toast.error('Please select an Original Lecture / Timetable Slot');
       return;
     }
 
+    const selectedOpt = rescheduleOptions.find(o => o.id === rcOriginalId);
+    if (!selectedOpt) {
+      toast.error('Invalid lecture selection');
+      return;
+    }
+
+    if (rcMode === 'PERMANENT') {
+      // Permanent reschedule updates the master timetable entry
+      if (selectedOpt.entryIdx === undefined || !onboarding.timetableEntries) {
+        toast.error('Permanent reschedule can only be applied to master timetable slots');
+        return;
+      }
+
+      const targetEntry = onboarding.timetableEntries[selectedOpt.entryIdx];
+      const newDay = rcNewDate ? new Date(rcNewDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase() : targetEntry.day;
+
+      // Conflict check
+      const conflict = (onboarding.timetableEntries || []).some((e, idx) => {
+        if (idx === selectedOpt.entryIdx) return false;
+        if (e.day.toUpperCase() !== newDay.toUpperCase()) return false;
+        return rcNewStartTime < e.endTime && rcNewEndTime > e.startTime;
+      });
+
+      if (conflict) {
+        toast.error(`Conflict Warning: Time slot ${rcNewStartTime}-${rcNewEndTime} overlaps with another class on ${newDay}`);
+        return;
+      }
+
+      const updatedEntries = [...onboarding.timetableEntries];
+      updatedEntries[selectedOpt.entryIdx] = {
+        ...targetEntry,
+        day: newDay,
+        startTime: rcNewStartTime,
+        endTime: rcNewEndTime,
+      };
+
+      setOnboarding({ ...onboarding, timetableEntries: updatedEntries });
+      toast.success(`Master Timetable Updated! ${targetEntry.subjectName} permanently moved to ${newDay} (${rcNewStartTime} - ${rcNewEndTime}).`);
+      setRcReason('');
+      return;
+    }
+
+    // Temporary reschedule (single date occurrence exception)
+    if (!rcNewDate) {
+      toast.error('Please select a New Date for temporary reschedule');
+      return;
+    }
+
+    const targetLectureId = selectedOpt.id.replace('lec|', '').replace('tt|', '');
     const newRescheduled: RescheduledClass = {
       id: Math.random().toString(36).substr(2, 9),
-      originalLectureId: rcOriginalId,
+      originalLectureId: targetLectureId,
       newDate: rcNewDate,
       newStartTime: rcNewStartTime,
       newEndTime: rcNewEndTime,
@@ -124,8 +205,54 @@ export default function SemesterPage() {
     };
 
     setRescheduledClasses([...rescheduledClasses, newRescheduled]);
-    toast.success('Reschedule logged successfully!');
+    toast.success(`Single occurrence rescheduled to ${rcNewDate} (${rcNewStartTime} - ${rcNewEndTime})!`);
     setRcReason('');
+  };
+
+  const handleSwapSlots = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (swapSlotAIdx === '' || swapSlotBIdx === '') {
+      toast.error('Please select both Slot A and Slot B to swap');
+      return;
+    }
+
+    const idxA = Number(swapSlotAIdx);
+    const idxB = Number(swapSlotBIdx);
+
+    if (idxA === idxB) {
+      toast.error('Please select two different timetable slots to swap');
+      return;
+    }
+
+    const entries = onboarding.timetableEntries || [];
+    const slotA = entries[idxA];
+    const slotB = entries[idxB];
+
+    if (!slotA || !slotB) {
+      toast.error('Invalid slot selection');
+      return;
+    }
+
+    const updatedEntries = [...entries];
+    // Swap day, startTime, and endTime
+    updatedEntries[idxA] = {
+      ...slotA,
+      day: slotB.day,
+      startTime: slotB.startTime,
+      endTime: slotB.endTime,
+    };
+
+    updatedEntries[idxB] = {
+      ...slotB,
+      day: slotA.day,
+      startTime: slotA.startTime,
+      endTime: slotA.endTime,
+    };
+
+    setOnboarding({ ...onboarding, timetableEntries: updatedEntries });
+    toast.success(`Master Timetable Swapped! ${slotA.subjectName} (${slotB.day} ${slotB.startTime}) ↔ ${slotB.subjectName} (${slotA.day} ${slotA.startTime}).`);
+    setSwapSlotAIdx('');
+    setSwapSlotBIdx('');
   };
 
   const handleAddCredit = (e: React.FormEvent) => {
@@ -175,7 +302,7 @@ export default function SemesterPage() {
   // Helper to find original lecture details
   const getLectureLabel = (id: string) => {
     const l = lectures.find(lec => lec.id === id);
-    if (!l) return 'Unknown Lecture';
+    if (!l) return 'Timetable Slot';
     return `${l.subjectName} (${l.date} at ${l.startTime})`;
   };
 
@@ -199,7 +326,7 @@ export default function SemesterPage() {
           Semester Adjustments
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Configure holidays, log extra sessions, reschedule timetabled classes, or add custom attendance credits.
+          Configure holidays, log extra sessions, reschedule timetabled classes, or swap master slots permanently.
         </p>
       </div>
 
@@ -208,12 +335,12 @@ export default function SemesterPage() {
         {/* Left Column: Form Section */}
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
           {/* Tab selector */}
-          <div className="grid grid-cols-2 gap-1 bg-secondary p-1 rounded-xl">
-            {(['HOLIDAYS', 'EXTRA_CLASSES', 'RESCHEDULE', 'CREDITS'] as const).map(tab => (
+          <div className="grid grid-cols-3 gap-1 bg-secondary p-1 rounded-xl">
+            {(['HOLIDAYS', 'EXTRA_CLASSES', 'RESCHEDULE', 'SWAP_SLOTS', 'CREDITS'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`py-1.5 px-2 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all text-center ${
+                className={`py-1.5 px-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all text-center ${
                   activeTab === tab 
                     ? 'bg-card text-foreground shadow-sm' 
                     : 'text-muted-foreground hover:text-foreground'
@@ -292,12 +419,12 @@ export default function SemesterPage() {
               </div>
 
               <div>
-                <label className="text-xs text-muted-foreground font-medium block mb-1">Reason / Notes</label>
+                <label className="text-xs text-muted-foreground font-medium block mb-1">Reason / Description</label>
                 <input
                   type="text"
                   value={hReason}
                   onChange={e => setHReason(e.target.value)}
-                  placeholder="e.g. Festival Leave"
+                  placeholder="e.g. Official University Holiday"
                   className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
                 />
               </div>
@@ -311,37 +438,27 @@ export default function SemesterPage() {
             </form>
           )}
 
-          {/* Tab Form: Extra Classes */}
+          {/* Tab Form: Extra Class */}
           {activeTab === 'EXTRA_CLASSES' && (
             <form onSubmit={handleAddExtraClass} className="space-y-4">
-              <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">Log Extra Class</h2>
+              <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">Log Extra Session</h2>
+              
               <div>
-                <label className="text-xs text-muted-foreground font-medium block mb-1">Subject</label>
+                <label className="text-xs text-muted-foreground font-medium block mb-1">Select Subject</label>
                 <select
                   value={ecSubject}
                   onChange={e => setEcSubject(e.target.value)}
                   className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
                 >
-                  <option value="">-- Select Subject --</option>
+                  <option value="">-- Choose Subject --</option>
                   {subjects.map(s => (
                     <option key={s.id} value={s.name}>{s.name}</option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label className="text-xs text-muted-foreground font-medium block mb-1">Faculty Name</label>
-                <input
-                  type="text"
-                  value={ecFaculty}
-                  onChange={e => setEcFaculty(e.target.value)}
-                  placeholder="e.g. Dr. Vinay"
-                  className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
                   <label className="text-xs text-muted-foreground font-medium block mb-1">Date</label>
                   <input
                     type="date"
@@ -351,16 +468,14 @@ export default function SemesterPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-muted-foreground font-medium block mb-1">Session Type</label>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Component</label>
                   <select
                     value={ecCompType}
                     onChange={e => setEcCompType(e.target.value as any)}
                     className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
                   >
                     <option value="THEORY">Theory</option>
-                    <option value="LAB">Lab</option>
-                    <option value="TUTORIAL">Tutorial</option>
-                    <option value="WORKSHOP">Workshop</option>
+                    <option value="LAB">Practical / Lab</option>
                   </select>
                 </div>
               </div>
@@ -423,24 +538,45 @@ export default function SemesterPage() {
           {activeTab === 'RESCHEDULE' && (
             <form onSubmit={handleAddReschedule} className="space-y-4">
               <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">Reschedule Lecture</h2>
+              
+              {/* Reschedule Type Toggle */}
+              <div className="grid grid-cols-2 gap-1 bg-secondary p-1 rounded-lg text-xs">
+                <button
+                  type="button"
+                  onClick={() => setRcMode('TEMPORARY')}
+                  className={`py-1 rounded-md font-semibold transition-all ${rcMode === 'TEMPORARY' ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground'}`}
+                >
+                  Single Occurrence
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRcMode('PERMANENT')}
+                  className={`py-1 rounded-md font-semibold transition-all ${rcMode === 'PERMANENT' ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground'}`}
+                >
+                  Permanent Master Update
+                </button>
+              </div>
+
               <div>
-                <label className="text-xs text-muted-foreground font-medium block mb-1">Select Lecture to Reschedule</label>
+                <label className="text-xs text-muted-foreground font-medium block mb-1">Select Slot / Lecture to Reschedule</label>
                 <select
                   value={rcOriginalId}
                   onChange={e => setRcOriginalId(e.target.value)}
                   className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
                 >
-                  <option value="">-- Select Original Lecture --</option>
-                  {lectures.filter(l => l.status === 'SCHEDULED').slice(0, 15).map(l => (
-                    <option key={l.id} value={l.id}>
-                      {l.subjectName} ({l.date} at {l.startTime})
+                  <option value="">-- Select Original Lecture / Timetable Slot --</option>
+                  {rescheduleOptions.map(opt => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="text-xs text-muted-foreground font-medium block mb-1">New Date</label>
+                <label className="text-xs text-muted-foreground font-medium block mb-1">
+                  {rcMode === 'PERMANENT' ? 'Effective Date (Determines Day of Week)' : 'New Date'}
+                </label>
                 <input
                   type="date"
                   value={rcNewDate}
@@ -470,18 +606,20 @@ export default function SemesterPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs text-muted-foreground font-medium block mb-1">Attendance Log</label>
-                <select
-                  value={rcAttendance}
-                  onChange={e => setRcAttendance(e.target.value as any)}
-                  className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
-                >
-                  <option value="PRESENT">Conducted & Present</option>
-                  <option value="ABSENT">Conducted & Absent</option>
-                  <option value="CANCELLED">Cancelled</option>
-                </select>
-              </div>
+              {rcMode === 'TEMPORARY' && (
+                <div>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Attendance Log</label>
+                  <select
+                    value={rcAttendance}
+                    onChange={e => setRcAttendance(e.target.value as any)}
+                    className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
+                  >
+                    <option value="PRESENT">Conducted & Present</option>
+                    <option value="ABSENT">Conducted & Absent</option>
+                    <option value="CANCELLED">Cancelled</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="text-xs text-muted-foreground font-medium block mb-1">Reason / Notes</label>
@@ -498,7 +636,59 @@ export default function SemesterPage() {
                 type="submit"
                 className="w-full py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity shadow-sm"
               >
-                Log Reschedule
+                {rcMode === 'PERMANENT' ? 'Update Master Timetable' : 'Log Single Reschedule'}
+              </button>
+            </form>
+          )}
+
+          {/* Tab Form: Swap Slots */}
+          {activeTab === 'SWAP_SLOTS' && (
+            <form onSubmit={handleSwapSlots} className="space-y-4">
+              <h2 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <ArrowLeftRight className="h-4 w-4 text-primary" />
+                Permanent Slot Swap
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Swap the recurring day and time slots between any two master timetable entries permanently.
+              </p>
+
+              <div>
+                <label className="text-xs text-muted-foreground font-medium block mb-1">Select Timetable Slot A</label>
+                <select
+                  value={swapSlotAIdx}
+                  onChange={e => setSwapSlotAIdx(e.target.value)}
+                  className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
+                >
+                  <option value="">-- Choose Slot A --</option>
+                  {(onboarding.timetableEntries || []).map((entry, idx) => (
+                    <option key={idx} value={idx}>
+                      {entry.subjectName} ({entry.day} {entry.startTime} - {entry.endTime})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-muted-foreground font-medium block mb-1">Select Timetable Slot B</label>
+                <select
+                  value={swapSlotBIdx}
+                  onChange={e => setSwapSlotBIdx(e.target.value)}
+                  className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
+                >
+                  <option value="">-- Choose Slot B --</option>
+                  {(onboarding.timetableEntries || []).map((entry, idx) => (
+                    <option key={idx} value={idx}>
+                      {entry.subjectName} ({entry.day} {entry.startTime} - {entry.endTime})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity shadow-sm"
+              >
+                Swap Master Timetable Slots
               </button>
             </form>
           )}
@@ -508,21 +698,14 @@ export default function SemesterPage() {
             <form onSubmit={handleAddCredit} className="space-y-4">
               <h2 className="text-sm font-bold text-foreground uppercase tracking-wider">Log Attendance Credit</h2>
               
-              <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-3 text-xs text-muted-foreground flex gap-2">
-                <Info size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                <p>
-                  Credits automatically increase your attendance percentage for the chosen subject without adding physical class records. Use for authorized duty leaves.
-                </p>
-              </div>
-
               <div>
-                <label className="text-xs text-muted-foreground font-medium block mb-1">Subject</label>
+                <label className="text-xs text-muted-foreground font-medium block mb-1">Select Subject</label>
                 <select
                   value={cSubject}
                   onChange={e => setCSubject(e.target.value)}
                   className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
                 >
-                  <option value="">-- Select Subject --</option>
+                  <option value="">-- Choose Subject --</option>
                   {subjects.map(s => (
                     <option key={s.id} value={s.name}>{s.name}</option>
                   ))}
@@ -531,18 +714,18 @@ export default function SemesterPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-muted-foreground font-medium block mb-1">Credits Amount</label>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Credit Amount</label>
                   <input
                     type="number"
+                    min="1"
+                    max="20"
                     value={cCredits}
                     onChange={e => setCCredits(Number(e.target.value))}
-                    min={1}
-                    max={10}
                     className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-muted-foreground font-medium block mb-1">Date Approved</label>
+                  <label className="text-xs text-muted-foreground font-medium block mb-1">Effective Date</label>
                   <input
                     type="date"
                     value={cDate}
@@ -553,23 +736,23 @@ export default function SemesterPage() {
               </div>
 
               <div>
-                <label className="text-xs text-muted-foreground font-medium block mb-1">Reason for Credit</label>
+                <label className="text-xs text-muted-foreground font-medium block mb-1">Reason / Purpose</label>
                 <input
                   type="text"
                   value={cReason}
                   onChange={e => setCReason(e.target.value)}
-                  placeholder="e.g. Sports Fest Organizer, Hackathon"
+                  placeholder="e.g. Technical Fest Duty, Sports Representative"
                   className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="text-xs text-muted-foreground font-medium block mb-1">Approved By (Faculty/HOD)</label>
+                <label className="text-xs text-muted-foreground font-medium block mb-1">Approved By (Faculty/Dept)</label>
                 <input
                   type="text"
                   value={cApprovedBy}
                   onChange={e => setCApprovedBy(e.target.value)}
-                  placeholder="e.g. Dr. Satish"
+                  placeholder="e.g. Dr. A. Sharma (HOD)"
                   className="w-full bg-secondary border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none"
                 />
               </div>
@@ -578,36 +761,33 @@ export default function SemesterPage() {
                 type="submit"
                 className="w-full py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity shadow-sm"
               >
-                Grant Credit
+                Log Attendance Credit
               </button>
             </form>
           )}
 
         </div>
 
-        {/* Right Column: Active Adjustments Lists */}
+        {/* Right Column: Active Adjustment Logs */}
         <div className="lg:col-span-2 space-y-6">
-          
-          {/* Holidays list */}
-          <div className="p-5 rounded-xl border border-border bg-card shadow-sm space-y-3">
-            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <Calendar size={14} className="text-muted-foreground" />
-              Configured Holidays / Breaks ({holidays.length})
-            </h3>
-            
+
+          {/* Section: Logged Holidays */}
+          <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+            <h2 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center justify-between">
+              <span>Configured Holidays / Breaks ({holidays.length})</span>
+            </h2>
+
             {holidays.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-2">No holidays logged yet.</p>
+              <p className="text-xs text-muted-foreground py-4 text-center">No holidays logged yet.</p>
             ) : (
               <div className="space-y-2">
                 {holidays.map(h => (
-                  <div key={h.id} className="flex justify-between items-center text-xs p-3 rounded-lg bg-secondary/40 border border-border">
+                  <div key={h.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/50 text-xs">
                     <div>
-                      <span className="text-foreground font-bold">{h.title}</span>
-                      <span className="text-muted-foreground block text-[10px] mt-0.5">
-                        {h.startDate === h.endDate ? h.startDate : `${h.startDate} to ${h.endDate}`} &middot;{' '}
-                        {h.type === 'GLOBAL' ? 'Global Break' : `Subject Specific (${h.subjectName})`}
-                      </span>
-                      {h.reason && <span className="text-[10px] text-muted-foreground italic block mt-0.5">Note: {h.reason}</span>}
+                      <p className="font-semibold text-foreground">{h.title}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {h.type} &middot; {h.startDate} to {h.endDate} {h.subjectName ? `(${h.subjectName})` : ''}
+                      </p>
                     </div>
                     <button
                       onClick={() => handleDeleteHoliday(h.id)}
@@ -621,108 +801,83 @@ export default function SemesterPage() {
             )}
           </div>
 
-          {/* Extra Classes list */}
-          <div className="p-5 rounded-xl border border-border bg-card shadow-sm space-y-3">
-            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <Plus size={14} className="text-muted-foreground" />
-              Logged Extra Sessions ({extraClasses.length})
-            </h3>
-            
+          {/* Section: Logged Extra Classes */}
+          <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+            <h2 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center justify-between">
+              <span>Logged Extra Sessions ({extraClasses.length})</span>
+            </h2>
+
             {extraClasses.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-2">No extra classes logged yet.</p>
+              <p className="text-xs text-muted-foreground py-4 text-center">No extra classes logged yet.</p>
             ) : (
               <div className="space-y-2">
                 {extraClasses.map(ec => (
-                  <div key={ec.id} className="flex justify-between items-center text-xs p-3 rounded-lg bg-secondary/40 border border-border">
+                  <div key={ec.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/50 text-xs">
                     <div>
-                      <span className="text-foreground font-bold">{ec.subjectName}</span>
-                      <span className="text-muted-foreground block text-[10px] mt-0.5">
-                        {ec.date} at {ec.startTime}-{ec.endTime} &middot; {ec.componentType}{' '}
-                        {ec.faculty ? `(Faculty: ${ec.faculty})` : ''}
-                      </span>
-                      {ec.reason && <span className="text-[10px] text-muted-foreground block mt-0.5">Reason: {ec.reason}</span>}
+                      <p className="font-semibold text-foreground">{ec.subjectName} ({ec.componentType})</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {ec.date} at {ec.startTime} - {ec.endTime} {ec.reason ? `(${ec.reason})` : ''}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                        ec.status === 'CANCELLED' ? 'bg-secondary text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                      }`}>
-                        {ec.status === 'CANCELLED' ? 'Cancelled' : 'Conducted'}
-                      </span>
-                      <button
-                        onClick={() => handleDeleteExtraClass(ec.id)}
-                        className="p-1 text-muted-foreground hover:text-rose-500 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleDeleteExtraClass(ec.id)}
+                      className="p-1 text-muted-foreground hover:text-rose-500 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Rescheduled Classes list */}
-          <div className="p-5 rounded-xl border border-border bg-card shadow-sm space-y-3">
-            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <RefreshCw size={14} className="text-muted-foreground" />
-              Logged Reschedules ({rescheduledClasses.length})
-            </h3>
-            
+          {/* Section: Logged Reschedules */}
+          <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+            <h2 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center justify-between">
+              <span>Logged Reschedules ({rescheduledClasses.length})</span>
+            </h2>
+
             {rescheduledClasses.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-2">No rescheduled classes logged yet.</p>
+              <p className="text-xs text-muted-foreground py-4 text-center">No rescheduled classes logged yet.</p>
             ) : (
               <div className="space-y-2">
                 {rescheduledClasses.map(rc => (
-                  <div key={rc.id} className="flex justify-between items-center text-xs p-3 rounded-lg bg-secondary/40 border border-border">
+                  <div key={rc.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/50 text-xs">
                     <div>
-                      <span className="text-foreground font-bold">Rescheduled Lecture</span>
-                      <span className="text-muted-foreground block text-[10px] mt-0.5">
-                        Original: {getLectureLabel(rc.originalLectureId)}
-                      </span>
-                      <span className="text-muted-foreground block text-[10px]">
-                        New Slot: {rc.newDate} at {rc.newStartTime}-{rc.newEndTime}
-                      </span>
-                      {rc.reason && <span className="text-[10px] text-muted-foreground block mt-0.5">Reason: {rc.reason}</span>}
+                      <p className="font-semibold text-foreground">{getLectureLabel(rc.originalLectureId)}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Rescheduled to {rc.newDate} at {rc.newStartTime} - {rc.newEndTime} {rc.reason ? `(${rc.reason})` : ''}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                        rc.attendanceStatus === null ? 'bg-secondary text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                      }`}>
-                        {rc.attendanceStatus === null ? 'Not Attended' : 'Attended'}
-                      </span>
-                      <button
-                        onClick={() => handleDeleteReschedule(rc.id)}
-                        className="p-1 text-muted-foreground hover:text-rose-500 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleDeleteReschedule(rc.id)}
+                      className="p-1 text-muted-foreground hover:text-rose-500 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Attendance Credits list */}
-          <div className="p-5 rounded-xl border border-border bg-card shadow-sm space-y-3">
-            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <Award size={14} className="text-muted-foreground" />
-              Granted Attendance Credits ({attendanceCredits.length})
-            </h3>
-            
+          {/* Section: Logged Credits */}
+          <div className="bg-card border border-border rounded-xl p-5 shadow-sm space-y-4">
+            <h2 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center justify-between">
+              <span>Granted Attendance Credits ({attendanceCredits.length})</span>
+            </h2>
+
             {attendanceCredits.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-2">No custom attendance credits granted yet.</p>
+              <p className="text-xs text-muted-foreground py-4 text-center">No custom attendance credits granted yet.</p>
             ) : (
               <div className="space-y-2">
                 {attendanceCredits.map(c => (
-                  <div key={c.id} className="flex justify-between items-center text-xs p-3 rounded-lg bg-secondary/40 border border-border">
+                  <div key={c.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-secondary/50 text-xs">
                     <div>
-                      <span className="text-foreground font-bold">{c.subjectName}</span>
-                      <span className="text-muted-foreground block text-[10px] mt-0.5">
-                        Amount: <strong className="text-foreground">+{c.credits} Credits</strong> &middot; Granted {c.date}
-                      </span>
-                      <span className="text-muted-foreground block text-[10px]">Reason: {c.reason}</span>
-                      {c.approvedBy && <span className="text-[10px] text-muted-foreground block">Approved by: {c.approvedBy}</span>}
+                      <p className="font-semibold text-foreground">{c.subjectName} (+{c.credits} Credits)</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {c.date} &middot; Reason: {c.reason} {c.approvedBy ? `(Approved: ${c.approvedBy})` : ''}
+                      </p>
                     </div>
                     <button
                       onClick={() => handleDeleteCredit(c.id)}
