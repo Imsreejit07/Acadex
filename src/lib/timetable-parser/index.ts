@@ -87,8 +87,8 @@ Return ONLY valid JSON with this exact shape — no markdown fences, no explanat
 2. Build the complete subject lookup dictionary BEFORE mapping timetable cells.
 3. Preserve slot codes exactly. A cell like "N", "G2", "C", or "P" may be a valid slot code; do not discard single-letter cells unless the time column is explicitly Lunch/Break.
 4. Map every occupied timetable cell through the lookup dictionary when a slot table exists.
-5. If an occupied timetable cell cannot be mapped, still include it using subjectName "UNKNOWN <cell text>" and code "<cell text>".
-6. Empty timetable cells must remain omitted; never fill them.
+5. If a timetable cell cannot be mapped to a valid subject, IGNORE IT. Do NOT include it in timetableEntries. DO NOT output "UNKNOWN".
+6. Empty timetable cells must remain omitted; never fill them. DO NOT add hypothetical slots. Only extract slots that explicitly exist with a subject and time.
 7. Do not invent missing faculty, rooms, credits, or subject names.
 8. After extraction, self-audit: every occupied non-break cell must correspond to exactly one timetable entry after merged-cell processing.`;
 
@@ -139,7 +139,7 @@ export async function testLlmConnection(): Promise<{ success: boolean; parserTyp
   try {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-pro',
       contents: 'Say "Connection OK" in exactly 2 words',
     });
     const text = response.text?.trim() || 'No response';
@@ -211,7 +211,7 @@ export async function parseTimetableFromBuffer(
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.5-pro',
       contents: [
         {
           role: 'user',
