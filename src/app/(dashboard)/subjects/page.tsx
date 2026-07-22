@@ -1,8 +1,8 @@
 'use client';
 
-import { Plus, Pencil, Sparkles } from 'lucide-react';
+import { Plus, Pencil, Sparkles, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
-import { useAttendanceStore } from '@/features/attendance/services/attendance-store';
+import { useHydratedStore } from '@/features/attendance/services/attendance-store';
 import { calculateNeedClasses } from '@/features/attendance/services/attendance-engine';
 import type { SubjectConfig } from '@/features/attendance/services/attendance-store';
 
@@ -28,8 +28,17 @@ function getSubjectColor(subject: SubjectConfig, index: number): string {
 // ─── Subjects Page ─────────────────────────────────────────────────────
 
 export default function SubjectsPage() {
-  const { onboarding, subjectSummaries } = useAttendanceStore();
+  const { onboarding, subjectSummaries, isFullyHydrated } = useHydratedStore();
   const semesterName = onboarding.semesterName || 'Semester';
+
+  if (!isFullyHydrated) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 max-w-md mx-auto">
+        <div className="h-10 w-10 rounded-full border-2 border-border border-t-primary animate-spin" />
+        <p className="text-xs text-muted-foreground font-semibold">Loading Subjects Data...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -41,13 +50,13 @@ export default function SubjectsPage() {
             {subjectSummaries.length} subjects &middot; {semesterName}
           </p>
         </div>
-        <button
+        <Link
+          href="/onboarding"
           className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-          onClick={() => alert('Add Subject — wire up your onboarding flow here.')}
         >
           <Plus size={15} />
           Add Subject
-        </button>
+        </Link>
       </div>
 
       {subjectSummaries.length === 0 ? (

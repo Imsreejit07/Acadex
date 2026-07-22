@@ -5,7 +5,7 @@ import {
   Trash2, AlertCircle, CheckCircle, XCircle, Search, 
   Filter, Calendar, RefreshCcw, FileSpreadsheet, Plus, Info, SlidersHorizontal
 } from 'lucide-react';
-import { useAttendanceStore } from '@/features/attendance/services/attendance-store';
+import { useHydratedStore } from '@/features/attendance/services/attendance-store';
 import type { LectureInstance, ComponentType, ExtraClass } from '@/features/attendance/services/attendance-store';
 
 function fmtDate(dateStr: string): string {
@@ -24,7 +24,7 @@ function fmtTime(time: string): string {
 }
 
 export default function HistoryPage() {
-  const { lectures, onboarding, deleteLecture, setLectureStatus, extraClasses, setExtraClasses } = useAttendanceStore();
+  const { lectures, onboarding, deleteLecture, setLectureStatus, extraClasses, setExtraClasses, isFullyHydrated } = useHydratedStore();
   const [search, setSearch] = useState('');
   const [filterSubject, setFilterSubject] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -147,6 +147,15 @@ export default function HistoryPage() {
       return matchSearch && matchSubject && matchStatus;
     }).sort((a, b) => `${b.date} ${b.startTime}`.localeCompare(`${a.date} ${a.startTime}`));
   }, [conductedLectures, search, filterSubject, filterStatus]);
+
+  if (!isFullyHydrated) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 max-w-md mx-auto">
+        <div className="h-10 w-10 rounded-full border-2 border-border border-t-primary animate-spin" />
+        <p className="text-xs text-muted-foreground font-semibold">Loading Lecture History...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 text-foreground max-w-7xl mx-auto p-1">

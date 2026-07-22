@@ -1,6 +1,6 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore, useState, useEffect } from 'react';
 import {
   aggregateAttendanceStats,
   calculateAttendance,
@@ -566,5 +566,20 @@ export function useAttendanceStore() {
       }
       writeJson(ATTENDANCE_KEY, parsed.overrides.filter(o => o.lectureId !== lectureId));
     },
+  };
+}
+
+export function useHydratedStore() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const store = useAttendanceStore();
+  const isFullyHydrated = mounted && store.isHydrated;
+
+  return {
+    ...store,
+    isFullyHydrated,
   };
 }

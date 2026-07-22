@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CheckCircle, XCircle } from 'lucide-react';
-import { useAttendanceStore } from '@/features/attendance/services/attendance-store';
+import { useHydratedStore } from '@/features/attendance/services/attendance-store';
 import {
   calculateSafeSkip,
   calculateNeedClasses,
@@ -44,7 +44,7 @@ function CircularRing({
 }) {
   const r = (size - strokeWidth) / 2;
   const circ = 2 * Math.PI * r;
-  const offset = circ - (Math.min(value, 100) / 100) * circ;
+  const offset = circ - (Math.min(100, Math.max(0, value)) / 100) * circ;
   const c = size / 2;
   return (
     <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
@@ -63,7 +63,7 @@ function CircularRing({
 // ─── Calculator Page ───────────────────────────────────────────────────
 
 export default function CalculatorPage() {
-  const { subjectSummaries } = useAttendanceStore();
+  const { subjectSummaries, isFullyHydrated } = useHydratedStore();
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [activeComponent, setActiveComponent] = useState<'THEORY' | 'LAB'>('THEORY');
@@ -110,6 +110,15 @@ export default function CalculatorPage() {
     ? projectAttendance(activePresent, activeConducted, clampedSimAttend, simFuture - clampedSimAttend)
         .projectedPercentage
     : 0;
+
+  if (!isFullyHydrated) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 max-w-md mx-auto">
+        <div className="h-10 w-10 rounded-full border-2 border-border border-t-primary animate-spin" />
+        <p className="text-xs text-muted-foreground font-semibold">Loading Calculator Data...</p>
+      </div>
+    );
+  }
 
   if (subjectSummaries.length === 0) {
     return (

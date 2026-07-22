@@ -7,7 +7,7 @@ import {
   TrendingUp, CalendarDays, BookOpen, AlertOctagon
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
-import { useAttendanceStore, AcademicEvent } from '@/features/attendance/services/attendance-store';
+import { useHydratedStore, AcademicEvent } from '@/features/attendance/services/attendance-store';
 
 function fmtTime12(time: string): string {
   if (!time) return '';
@@ -32,7 +32,7 @@ function fmtShortDate(dateStr: string): string {
 }
 
 export default function AcademicEventsPage() {
-  const { onboarding, events, setEvents } = useAttendanceStore();
+  const { onboarding, events, setEvents, isFullyHydrated } = useHydratedStore();
   const [filterType, setFilterType] = useState<string>('ALL');
   const [filterPriority, setFilterPriority] = useState<string>('ALL');
   

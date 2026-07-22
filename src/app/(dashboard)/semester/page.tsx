@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { 
-  useAttendanceStore, Holiday, ExtraClass, RescheduledClass, AttendanceCredit, ComponentType
+  useHydratedStore, Holiday, ExtraClass, RescheduledClass, AttendanceCredit, ComponentType
 } from '@/features/attendance/services/attendance-store';
 
 export default function SemesterPage() {
@@ -16,8 +16,9 @@ export default function SemesterPage() {
     holidays, setHolidays,
     extraClasses, setExtraClasses,
     rescheduledClasses, setRescheduledClasses,
-    attendanceCredits, setAttendanceCredits
-  } = useAttendanceStore();
+    attendanceCredits, setAttendanceCredits,
+    isFullyHydrated
+  } = useHydratedStore();
 
   const [activeTab, setActiveTab] = useState<'HOLIDAYS' | 'EXTRA_CLASSES' | 'RESCHEDULE' | 'CREDITS'>('HOLIDAYS');
 
@@ -179,6 +180,15 @@ export default function SemesterPage() {
     if (!l) return 'Unknown Lecture';
     return `${l.subjectName} (${l.date} at ${l.startTime})`;
   };
+
+  if (!isFullyHydrated) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 max-w-md mx-auto">
+        <div className="h-10 w-10 rounded-full border-2 border-border border-t-primary animate-spin" />
+        <p className="text-xs text-muted-foreground font-semibold">Loading Semester Data...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto p-1 text-foreground">
