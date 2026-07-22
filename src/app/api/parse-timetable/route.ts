@@ -36,12 +36,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Only PDF files are supported' }, { status: 400 });
     }
 
+    if (file.size > 4.5 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: 'File size exceeds Vercel limit of 4.5 MB. Please upload a compressed or single-page timetable PDF.' },
+        { status: 400 }
+      );
+    }
+
     const bytes = await file.arrayBuffer();
     const result = await parseTimetableFromBuffer(bytes, file.name);
     return NextResponse.json(result);
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    console.error('Error parsing timetable:', error);
+    const errStack = error instanceof Error ? error.stack : '';
+    console.error('Error parsing timetable:', errMsg, errStack);
 
     return NextResponse.json(
       {
