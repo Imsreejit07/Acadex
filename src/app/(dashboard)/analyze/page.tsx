@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { useAttendanceStore } from '@/features/attendance/services/attendance-store';
+import { rebuildTimetableFromGrid } from '@/lib/timetable-parser';
 
 type PipelineStep = {
   step: string;
@@ -54,148 +55,127 @@ type TimetableEntryItem = {
   endTime: string;
 };
 
-const STATUS_ICON: Record<string, React.ReactNode> = {
-  ok: <CheckCircle2 size={14} className="text-emerald-500 dark:text-emerald-400 shrink-0 mt-0.5" />,
-  warn: <AlertTriangle size={14} className="text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />,
-  error: <XCircle size={14} className="text-red-500 dark:text-red-400 shrink-0 mt-0.5" />,
-  skip: <SkipForward size={14} className="text-muted-foreground shrink-0 mt-0.5" />,
-};
+function DebugPanel({
+  detectedGrid,
+  slotDictionary,
+  groupedBlocks,
+  validationReport,
+}: {
+  detectedGrid?: any;
+  slotDictionary?: any;
+  groupedBlocks?: any;
+  validationReport?: any;
+}) {
+  const [activeTab, setActiveTab] = useState<'grid' | 'dictionary' | 'blocks' | 'validation'>('grid');
 
-const STATUS_COLOR: Record<string, string> = {
-  ok: 'text-foreground',
-  warn: 'text-amber-600 dark:text-amber-300',
-  error: 'text-red-600 dark:text-red-300',
-  skip: 'text-muted-foreground',
-};
-
-const COLOR_PALETTE = ['#6366f1', '#06b6d4', '#f43f5e', '#10b981', '#8b5cf6', '#3b82f6', '#f59e0b', '#ec4899'];
-
-function PipelinePanel({ log, rawMarkdown }: { log: PipelineLog; rawMarkdown?: string }) {
-  const [showMarkdown, setShowMarkdown] = useState(false);
-
-  const parserBadgeColor =
-    log.parserType === 'proxy' ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/20' :
-    log.parserType === 'gemini' ? 'bg-blue-500/15 text-blue-300 border-blue-500/20' :
-    log.parserType === 'ollama' ? 'bg-violet-500/15 text-violet-300 border-violet-500/20' :
-    'bg-slate-700/40 text-slate-400 border-slate-600/20';
-
-  const hasErrors = log.steps.some(s => s.status === 'error');
-  const hasWarnings = log.steps.some(s => s.status === 'warn') || log.warnings.length > 0;
-
-  const panelBorder = hasErrors
-    ? 'border-red-500/20'
-    : hasWarnings
-    ? 'border-amber-500/20'
-    : 'border-emerald-500/20';
+  if (!detectedGrid && !slotDictionary) return null;
 
   return (
-    <div className={`mt-5 rounded-xl border ${panelBorder} bg-card overflow-hidden`}>
-      {/* Header bar */}
-      <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-border">
-        <span className="text-xs font-bold text-foreground uppercase tracking-wider">Extraction Pipeline</span>
-        <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${parserBadgeColor}`}>
-          {log.parserType === 'proxy' ? 'Proxy (auto)' : 
-           log.parserType === 'gemini' ? `Gemini (${log.parserModel})` :
-           log.parserType === 'ollama' ? `Ollama (${log.parserModel})` :
-           'No AI'}
-        </span>
-        <span className="text-[11px] text-muted-foreground ml-auto flex items-center gap-1">
-          <Clock size={11} />
-          {(log.processingMs / 1000).toFixed(1)}s total
-        </span>
+    <div className="mt-5 rounded-xl border border-primary/20 bg-card overflow-hidden text-xs">
+      <div className="flex items-center gap-2 px-4 py-3 bg-secondary/50 border-b border-border">
+        <Sparkles size={14} className="text-primary" />
+        <span className="font-bold text-foreground uppercase tracking-wider">Parser Debug Mode (Staged IR)</span>
       </div>
 
-      {/* Parser reason */}
-      <div className="px-4 py-2 border-b border-border bg-secondary/30">
-        <p className="text-[11px] text-muted-foreground">
-          <span className="text-foreground font-medium">Parser selection: </span>{log.parserReason}
-        </p>
+      <div className="flex border-b border-border bg-secondary/20 overflow-x-auto">
+        <button
+          onClick={() => setActiveTab('grid')}
+          className={`px-4 py-2 font-semibold border-b-2 whitespace-nowrap transition-colors ${activeTab === 'grid' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}
+        >
+          2D Grid ({detectedGrid?.totalOccupiedCells || 0} cells)
+        </button>
+        <button
+          onClick={() => setActiveTab('dictionary')}
+          className={`px-4 py-2 font-semibold border-b-2 whitespace-nowrap transition-colors ${activeTab === 'dictionary' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}
+        >
+          Slot Dictionary ({slotDictionary?.entries?.length || 0})
+        </button>
+        <button
+          onClick={() => setActiveTab('blocks')}
+          className={`px-4 py-2 font-semibold border-b-2 whitespace-nowrap transition-colors ${activeTab === 'blocks' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}
+        >
+          Grouped Blocks ({groupedBlocks?.length || 0})
+        </button>
+        <button
+          onClick={() => setActiveTab('validation')}
+          className={`px-4 py-2 font-semibold border-b-2 whitespace-nowrap transition-colors ${activeTab === 'validation' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'}`}
+        >
+          Validation ({validationReport?.errors?.length || 0} errors)
+        </button>
       </div>
 
-      {/* Timetable stats */}
-      <div className="grid grid-cols-4 divide-x divide-border border-b border-border bg-secondary/20 text-center">
-        <div className="py-2.5">
-          <p className="text-[10px] text-muted-foreground uppercase font-medium">Chars Read</p>
-          <p className="text-sm font-bold text-foreground mt-0.5">{log.rawMarkdownChars.toLocaleString()}</p>
-        </div>
-        <div className="py-2.5">
-          <p className="text-[10px] text-muted-foreground uppercase font-medium">Table Rows</p>
-          <p className="text-sm font-bold text-foreground mt-0.5">{log.tableRowsDetected}</p>
-        </div>
-        <div className="py-2.5">
-          <p className="text-[10px] text-muted-foreground uppercase font-medium">Subjects</p>
-          <p className="text-sm font-bold text-foreground mt-0.5">{log.finalSubjects}</p>
-        </div>
-        <div className="py-2.5">
-          <p className="text-[10px] text-muted-foreground uppercase font-medium">Class Entries</p>
-          <p className="text-sm font-bold text-foreground mt-0.5">{log.finalEntries}</p>
-        </div>
-      </div>
-
-      {/* Comparison row — deterministic vs AI */}
-      <div className="grid grid-cols-2 divide-x divide-border border-b border-border text-[11px]">
-        <div className="px-4 py-2">
-          <span className="text-muted-foreground">Deterministic: </span>
-          <span className="text-foreground font-medium">{log.deterministicSubjects} subj · {log.deterministicEntries} entries</span>
-        </div>
-        <div className="px-4 py-2">
-          <span className="text-muted-foreground">AI: </span>
-          <span className="text-foreground font-medium">
-            {log.parserType === 'none' ? 'skipped' : `${log.aiSubjects} subj · {log.aiEntries} entries`}
-          </span>
-        </div>
-      </div>
-
-      {/* Step log */}
-      <div className="px-4 py-3 space-y-2">
-        {log.steps.map((step, i) => (
-          <div key={i} className="flex items-start gap-2">
-            {STATUS_ICON[step.status]}
-            <div className="flex-1 min-w-0">
-              <span className={`text-xs font-medium ${STATUS_COLOR[step.status]}`}>{step.step}</span>
-              <span className="text-[11px] text-muted-foreground ml-2">{step.detail}</span>
+      <div className="p-4 max-h-80 overflow-y-auto font-mono">
+        {activeTab === 'grid' && (
+          <div className="space-y-3">
+            <p className="text-muted-foreground font-sans">Column Header Bounding:</p>
+            <div className="flex flex-wrap gap-2">
+              {detectedGrid?.headers?.map((h: any) => (
+                <span key={h.colIndex} className="px-2 py-1 rounded bg-secondary border border-border">
+                  Col {h.colIndex}: {h.startTime}-{h.endTime} {h.isBreak ? '(Break)' : ''}
+                </span>
+              ))}
             </div>
-            <span className="text-[10px] text-muted-foreground font-mono shrink-0 mt-0.5">{step.ms}ms</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Warning Box */}
-      {log.warnings.length > 0 && (
-        <div className="mx-4 mb-4 p-3 rounded-lg bg-amber-500/5 border border-amber-500/10 space-y-1">
-          <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1">
-            <AlertTriangle size={13} />
-            Parser Warnings
-          </p>
-          <ul className="list-disc pl-4 text-[11px] text-muted-foreground space-y-0.5">
-            {log.warnings.map((w, i) => (
-              <li key={i}>{w}</li>
+            <p className="text-muted-foreground font-sans pt-2">Raw Grid Row Cells:</p>
+            {detectedGrid?.rows?.map((r: any) => (
+              <div key={r.day} className="space-y-1">
+                <span className="font-bold text-foreground">{r.day}:</span>
+                <div className="flex flex-wrap gap-1.5 pl-2">
+                  {r.cells?.map((c: any, i: number) => (
+                    <span key={i} className="px-1.5 py-0.5 rounded bg-secondary/80 border border-border text-[11px]">
+                      Col {c.colIndex} → "{c.rawText}"
+                    </span>
+                  ))}
+                </div>
+              </div>
             ))}
-          </ul>
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* Raw Markdown Accordion */}
-      {rawMarkdown && (
-        <div className="border-t border-border">
-          <button
-            type="button"
-            onClick={() => setShowMarkdown(!showMarkdown)}
-            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-secondary/50 text-[11px] text-muted-foreground transition-colors"
-          >
-            <span className="flex items-center gap-1.5 font-medium">
-              <FileText size={12} className="text-muted-foreground" />
-              Raw OCR Output ({rawMarkdown.length.toLocaleString()} chars)
-            </span>
-            {showMarkdown ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-          </button>
-          {showMarkdown && (
-            <pre className="px-4 pb-4 text-[10px] font-mono text-muted-foreground whitespace-pre-wrap break-words max-h-72 overflow-y-auto leading-relaxed">
-              {rawMarkdown}
-            </pre>
-          )}
-        </div>
-      )}
+        {activeTab === 'dictionary' && (
+          <div className="space-y-1">
+            {slotDictionary?.entries?.map((e: any, i: number) => (
+              <div key={i} className="flex items-center gap-3 py-1 border-b border-border/50">
+                <span className="font-bold text-primary px-2 py-0.5 rounded bg-primary/10">{e.slotCode}</span>
+                <span className="text-foreground">{e.subjectName}</span>
+                <span className="text-muted-foreground">({e.faculty})</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'blocks' && (
+          <div className="space-y-1">
+            {groupedBlocks?.map((b: any) => (
+              <div key={b.id} className="py-1 border-b border-border/50 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-foreground">{b.day}</span>: {b.subjectName} ({b.slotCode})
+                </div>
+                <div className="text-muted-foreground">
+                  Col {b.startCol}-{b.endCol} ({b.startTime} - {b.endTime}) &middot; {b.cellCount} cell(s)
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'validation' && (
+          <div className="space-y-2 font-sans">
+            <div className="flex items-center gap-4">
+              <span className={`px-2 py-1 rounded font-bold ${validationReport?.isValid ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'}`}>
+                Status: {validationReport?.isValid ? 'VALID' : 'INVALID'}
+              </span>
+              <span>Occupied Cells: {validationReport?.occupiedCellCount}</span>
+              <span>Mapped Cells: {validationReport?.mappedCellCount}</span>
+            </div>
+            {validationReport?.errors?.map((err: string, i: number) => (
+              <p key={i} className="text-red-500 flex items-center gap-1 font-semibold"><XCircle size={13} /> {err}</p>
+            ))}
+            {validationReport?.warnings?.map((warn: string, i: number) => (
+              <p key={i} className="text-amber-500 flex items-center gap-1"><AlertTriangle size={13} /> {warn}</p>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -209,6 +189,12 @@ export default function AnalyzePDFPage() {
   const [subjects, setSubjects] = useState<SubjectItem[]>([]);
   const [entries, setEntries] = useState<TimetableEntryItem[]>([]);
   const [manualOverrides, setManualOverrides] = useState<Record<string, string>>({});
+
+  // Intermediate Representations for Debug Mode
+  const [detectedGrid, setDetectedGrid] = useState<any>(null);
+  const [slotDictionary, setSlotDictionary] = useState<any>(null);
+  const [groupedBlocks, setGroupedBlocks] = useState<any[]>([]);
+  const [validationReport, setValidationReport] = useState<any>(null);
 
   const [pipelineLog, setPipelineLog] = useState<PipelineLog | null>(null);
   const [rawMarkdown, setRawMarkdown] = useState<string | undefined>(undefined);
@@ -230,6 +216,10 @@ export default function AnalyzePDFPage() {
     setIsUploading(true);
     setPipelineLog(null);
     setRawMarkdown(undefined);
+    setDetectedGrid(null);
+    setSlotDictionary(null);
+    setGroupedBlocks([]);
+    setValidationReport(null);
     setSubjects([]);
     setEntries([]);
     setManualOverrides({});
@@ -247,12 +237,16 @@ export default function AnalyzePDFPage() {
 
       if (data.pipelineLog) setPipelineLog(data.pipelineLog);
       if (data.rawMarkdown) setRawMarkdown(data.rawMarkdown);
+      if (data.detectedGrid) setDetectedGrid(data.detectedGrid);
+      if (data.slotDictionary) setSlotDictionary(data.slotDictionary);
+      if (data.groupedBlocks) setGroupedBlocks(data.groupedBlocks);
+      if (data.validationReport) setValidationReport(data.validationReport);
 
       if (!response.ok) {
         throw new Error(data.error || data.details || 'Failed to analyze PDF');
       }
 
-      // Initialize extracted subjects, default to Theory Only (hasLab = false)
+      // Initialize extracted subjects
       const parsedSubjects: SubjectItem[] = (data.subjects || []).map((s: any, idx: number) => ({
         id: Math.random().toString(36).substr(2, 9),
         name: s.name,
@@ -470,9 +464,15 @@ export default function AnalyzePDFPage() {
             <p className="text-sm font-semibold text-foreground">Upload Timetable PDF</p>
             <p className="text-xs text-muted-foreground">Max size: 10MB</p>
           </div>
-        )}
       </div>
 
+      {/* Parser Debug Mode (Intermediate Representations) */}
+      <DebugPanel
+        detectedGrid={detectedGrid}
+        slotDictionary={slotDictionary}
+        groupedBlocks={groupedBlocks}
+        validationReport={validationReport}
+      />
 
       {/* Extracted preview & Save option */}
       {subjects.length > 0 && (

@@ -1,79 +1,96 @@
 import { GoogleGenAI } from '@google/genai';
 
-/**
- * Gemini-powered timetable parser.
- * Sends the PDF directly to Gemini — no OCR preprocessing, no fallbacks.
- */
-
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-type ParsedTimetable = {
-  subjects: Array<{
-    name: string;
-    code: string;
-    faculty: string;
-    color: string;
-    hasLab: boolean;
-  }>;
-  timetableEntries: Array<{
-    day: string;
-    subjectName: string;
-    componentType: 'THEORY' | 'LAB';
-    startTime: string;
-    endTime: string;
-  }>;
-  verificationLog: string;
-};const TIMETABLE_SYSTEM_PROMPT = `You are a precise college timetable extraction engine. Extract data from the provided university timetable PDF.
+// ─── Pipeline Types & Intermediate Representation (IR) ─────────────────────
 
-Return ONLY valid JSON with this exact shape — no markdown fences, no explanation, no other text:
-{
-  "subjects": [
-    {
-      "name": "subject name",
-      "code": "course code or SUBJ",
-      "faculty": "faculty name or Unknown Faculty",
-      "color": "#3B82F6",
-      "hasLab": false
-    }
-  ],
-  "timetableEntries": [
-    {
-      "day": "MONDAY",
-      "subjectName": "must match a subjects[].name",
-      "componentType": "THEORY",
-      "startTime": "09:00",
-      "endTime": "10:00"
-    }
-  ],
-  "verificationLog": "brief summary of extraction"
-}
+export type ColumnHeader = {
+  colIndex: number;
+  startTime: string; // 24h format HH:mm
+  endTime: string;   // 24h format HH:mm
+  isBreak: boolean;
+  label: string;
+};
 
-### CRITICAL TIME SLOT ALIGNMENT RULES (PERMANENT ACCURACY GUARANTEE)
+export type GridCell = {
+  colIndex: number;
+  rawText: string;
+};
 
-1. COLUMN-TO-TIME BOUNDING & NO SHIFTING:
-- First, identify and map all column header times from left to right (e.g. Column 1: 09:00-09:55, Column 2: 10:00-10:55, Column 3: 11:00-11:55, etc.).
-- NEVER shift or offset time ranges across columns. A subject under Column 2 MUST be assigned Column 2's exact start and end time (10:00 to 10:55). NEVER shift it to Column 1's time (09:00 to 09:55).
-- Verify every extracted slot's time range against its exact header column!
+export type GridRow = {
+  day: string; // MONDAY, TUESDAY, etc.
+  cells: GridCell[];
+};
 
-2. COMPLETE SLOT EXTRACTION (NO MISSING SLOTS):
-- Scan every single row and cell methodically for every weekday (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday).
-- Do not omit or skip any non-empty cell. Extract EVERY lecture/lab session present in the schedule grid.
+export type DetectedGrid = {
+  headers: ColumnHeader[];
+  rows: GridRow[];
+  totalOccupiedCells: number;
+};
 
-3. OBJECTIVE & HALLUCINATION PREVENTION:
-- Rely strictly on document structure. Never hallucinate or invent subjects, faculty, rooms, timings, or relationships.
-- Do NOT output "UNKNOWN" subjects. If a cell cannot be resolved to a valid course/subject, ignore it.
-- Empty cells remain omitted. Do NOT invent hypothetical slots.
+export type SlotCatalogEntry = {
+  slotCode: string;
+  subjectName: string;
+  code: string;
+  faculty: string;
+};
 
-4. BREAKS & SEPARATORS:
-- Recognize non-academic slots (Lunch, Break, Recess, Interval) and ignore them. Do not include them in timetableEntries.
+export type SlotDictionary = {
+  entries: SlotCatalogEntry[];
+  lookupMap: Record<string, SlotCatalogEntry>;
+};
 
-5. MERGED SESSION DETECTION & LAB CLASSIFICATION:
-- If consecutive timetable cells represent the same session (same subject, adjacent time intervals), merge them into a single entry covering the combined duration.
-- Infer componentType (THEORY or LAB). Lab sessions are typically 2+ hours long.`;
+export type GroupedBlock = {
+  id: string;
+  day: string;
+  slotCode: string;
+  subjectName: string;
+  faculty: string;
+  code: string;
+  startCol: number;
+  endCol: number;
+  startTime: string;
+  endTime: string;
+  cellCount: number;
+};
 
-// ─── Pipeline Log Types ────────────────────────────────────────────────────
+export type ClassifiedSession = {
+  id: string;
+  day: string;
+  subjectName: string;
+  code: string;
+  faculty: string;
+  componentType: 'THEORY' | 'LAB';
+  startTime: string;
+  endTime: string;
+};
 
-type PipelineStep = {
+export type ValidationReport = {
+  isValid: boolean;
+  occupiedCellCount: number;
+  mappedCellCount: number;
+  groupedBlockCount: number;
+  classifiedSessionCount: number;
+  duplicateSessions: string[];
+  overlappingSessions: string[];
+  impossibleTimes: string[];
+  errors: string[];
+  warnings: string[];
+};
+
+export type ParsedSubject = {
+  id: string;
+  name: string;
+  code: string;
+  faculty: string;
+  color: string;
+  hasLab: boolean;
+  theoryTarget: number;
+  labTarget: number;
+  credits: number | null;
+};
+
+export type PipelineStep = {
   step: string;
   status: 'ok' | 'warn' | 'error' | 'skip';
   detail: string;
@@ -98,12 +115,64 @@ export type PipelineLog = {
   warnings: string[];
 };
 
-export type TimetableParseResult = ParsedTimetable & {
+export type TimetableParseResult = {
+  subjects: ParsedSubject[];
+  timetableEntries: ClassifiedSession[];
+  verificationLog: string;
   pipelineLog: PipelineLog;
   rawMarkdown: string;
+  // Intermediate Representation for Debug Mode & Inspection
+  detectedGrid: DetectedGrid;
+  slotDictionary: SlotDictionary;
+  groupedBlocks: GroupedBlock[];
+  validationReport: ValidationReport;
   error?: string;
   details?: string;
 };
+
+const COLOR_PALETTE = ['#6366f1', '#10b981', '#f43f5e', '#8b5cf6', '#06b6d4', '#3b82f6', '#f59e0b', '#ec4899'];
+
+const RAW_GRID_EXTRACTION_PROMPT = `You are a 2D OCR Table Extractor. Your single task is to extract the 2D grid matrix and the subject lookup table from this timetable PDF.
+
+Return ONLY a valid JSON object matching this exact shape:
+{
+  "columnHeaders": [
+    {
+      "colIndex": 1,
+      "startTime": "09:00",
+      "endTime": "09:55",
+      "isBreak": false,
+      "label": "9:00-9:55"
+    }
+  ],
+  "gridRows": [
+    {
+      "day": "MONDAY",
+      "cells": [
+        {
+          "colIndex": 1,
+          "rawText": "G"
+        }
+      ]
+    }
+  ],
+  "subjectCatalog": [
+    {
+      "slotCode": "G",
+      "subjectName": "Object Oriented Programming",
+      "code": "CS101",
+      "faculty": "Dr. X"
+    }
+  ]
+}
+
+### EXTRACTION INSTRUCTIONS:
+1. "columnHeaders": Identify all time columns from left to right. Extract start/end times in 24h format (HH:mm). Mark lunch/breaks as "isBreak": true.
+2. "gridRows": Scan each day (MONDAY to SUNDAY). For every non-empty cell under column header "colIndex", extract the raw cell text (e.g. "G", "CS101", or full subject name). Do not guess or modify cell contents.
+3. "subjectCatalog": Extract the subject/slot lookup legend table if present. Map every slot code (e.g., "G", "H", "CS101") to its full subject name, course code, and faculty.
+4. DO NOT do time math, DO NOT merge cells across columns, DO NOT invent slots. Output ONLY raw grid coordinates and catalog data.`;
+
+// ─── Test Connection Handler ──────────────────────────────────────────────
 
 export async function testLlmConnection(): Promise<{ success: boolean; parserType: string; model: string; message: string; details?: string }> {
   if (!GEMINI_API_KEY) {
@@ -125,27 +194,291 @@ export async function testLlmConnection(): Promise<{ success: boolean; parserTyp
     return {
       success: true,
       parserType: 'gemini',
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash-lite',
       message: `Successfully connected to Gemini API. Reply: "${text}"`,
     };
   } catch (err: unknown) {
     return {
       success: false,
       parserType: 'gemini',
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash-lite',
       message: 'Failed to connect to Gemini API.',
       details: err instanceof Error ? err.message : String(err),
     };
   }
 }
 
-/**
- * Parse a timetable PDF using Gemini's native PDF understanding.
- * Accepts the raw PDF bytes and sends them directly to Gemini.
- */
+// ─── Stage 1: Build Authoritative Slot Dictionary ──────────────────────────
+
+export function buildSlotDictionary(rawCatalog: SlotCatalogEntry[]): SlotDictionary {
+  const lookupMap: Record<string, SlotCatalogEntry> = {};
+  const entries: SlotCatalogEntry[] = [];
+
+  for (const entry of rawCatalog) {
+    if (!entry.slotCode && !entry.subjectName) continue;
+    const codeKey = (entry.slotCode || entry.code || entry.subjectName).trim().toUpperCase();
+    const cleanEntry: SlotCatalogEntry = {
+      slotCode: codeKey,
+      subjectName: entry.subjectName?.trim() || codeKey,
+      code: entry.code?.trim() || codeKey,
+      faculty: entry.faculty?.trim() || 'Unknown Faculty',
+    };
+
+    if (codeKey) {
+      lookupMap[codeKey] = cleanEntry;
+    }
+    entries.push(cleanEntry);
+  }
+
+  return { entries, lookupMap };
+}
+
+// ─── Stage 2: Consecutive Block Grouping ───────────────────────────────────
+
+export function detectConsecutiveBlocks(
+  grid: DetectedGrid,
+  dictionary: SlotDictionary
+): GroupedBlock[] {
+  const groupedBlocks: GroupedBlock[] = [];
+  const headerMap = new Map<number, ColumnHeader>();
+  grid.headers.forEach(h => headerMap.set(h.colIndex, h));
+
+  for (const row of grid.rows) {
+    const day = row.day.toUpperCase();
+    const sortedCells = [...row.cells].sort((a, b) => a.colIndex - b.colIndex);
+
+    let currentBlock: {
+      slotCode: string;
+      subjectName: string;
+      faculty: string;
+      code: string;
+      startCol: number;
+      endCol: number;
+      cellCount: number;
+    } | null = null;
+
+    for (const cell of sortedCells) {
+      const header = headerMap.get(cell.colIndex);
+      if (!header || header.isBreak) continue;
+
+      const rawText = cell.rawText.trim();
+      if (!rawText || rawText === '-' || rawText === '|') continue;
+
+      const upperKey = rawText.toUpperCase();
+      const mapped = dictionary.lookupMap[upperKey];
+
+      const slotCode = mapped ? mapped.slotCode : upperKey;
+      const subjectName = mapped ? mapped.subjectName : rawText;
+      const faculty = mapped ? mapped.faculty : 'Unknown Faculty';
+      const code = mapped ? mapped.code : 'SUBJ';
+
+      if (
+        currentBlock &&
+        currentBlock.subjectName.toLowerCase() === subjectName.toLowerCase() &&
+        cell.colIndex === currentBlock.endCol + 1
+      ) {
+        currentBlock.endCol = cell.colIndex;
+        currentBlock.cellCount += 1;
+      } else {
+        if (currentBlock) {
+          const startH = headerMap.get(currentBlock.startCol)!;
+          const endH = headerMap.get(currentBlock.endCol)!;
+          groupedBlocks.push({
+            id: Math.random().toString(36).substr(2, 9),
+            day,
+            slotCode: currentBlock.slotCode,
+            subjectName: currentBlock.subjectName,
+            faculty: currentBlock.faculty,
+            code: currentBlock.code,
+            startCol: currentBlock.startCol,
+            endCol: currentBlock.endCol,
+            startTime: startH.startTime,
+            endTime: endH.endTime,
+            cellCount: currentBlock.cellCount,
+          });
+        }
+
+        currentBlock = {
+          slotCode,
+          subjectName,
+          faculty,
+          code,
+          startCol: cell.colIndex,
+          endCol: cell.colIndex,
+          cellCount: 1,
+        };
+      }
+    }
+
+    if (currentBlock) {
+      const startH = headerMap.get(currentBlock.startCol)!;
+      const endH = headerMap.get(currentBlock.endCol)!;
+      groupedBlocks.push({
+        id: Math.random().toString(36).substr(2, 9),
+        day,
+        slotCode: currentBlock.slotCode,
+        subjectName: currentBlock.subjectName,
+        faculty: currentBlock.faculty,
+        code: currentBlock.code,
+        startCol: currentBlock.startCol,
+        endCol: currentBlock.endCol,
+        startTime: startH.startTime,
+        endTime: endH.endTime,
+        cellCount: currentBlock.cellCount,
+      });
+    }
+  }
+
+  return groupedBlocks;
+}
+
+// ─── Stage 3: Session Classification & Dynamic Rebuild ──────────────────────
+
+export function classifyGroupedBlocks(
+  blocks: GroupedBlock[],
+  subjectConfigs: Record<string, { hasLab: boolean }> = {}
+): ClassifiedSession[] {
+  return blocks.map(block => {
+    const key = block.subjectName.toLowerCase();
+    const config = subjectConfigs[key];
+
+    let componentType: 'THEORY' | 'LAB' = 'THEORY';
+    if (config?.hasLab) {
+      if (block.cellCount >= 2 || block.slotCode.toLowerCase().includes('lab')) {
+        componentType = 'LAB';
+      }
+    } else if (block.slotCode.toLowerCase().includes('lab') || block.subjectName.toLowerCase().includes('lab')) {
+      componentType = 'LAB';
+    }
+
+    return {
+      id: block.id,
+      day: block.day,
+      subjectName: block.subjectName,
+      code: block.code,
+      faculty: block.faculty,
+      componentType,
+      startTime: block.startTime,
+      endTime: block.endTime,
+    };
+  });
+}
+
+// ─── Stage 4: Deterministic Validation Engine ──────────────────────────────
+
+export function validatePipeline(
+  grid: DetectedGrid,
+  dictionary: SlotDictionary,
+  blocks: GroupedBlock[],
+  sessions: ClassifiedSession[]
+): ValidationReport {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const duplicateSessions: string[] = [];
+  const overlappingSessions: string[] = [];
+  const impossibleTimes: string[] = [];
+
+  let occupiedCellCount = 0;
+  for (const r of grid.rows) {
+    occupiedCellCount += r.cells?.length || 0;
+  }
+
+  let mappedCellCount = 0;
+  for (const b of blocks) {
+    mappedCellCount += b.cellCount;
+  }
+
+  for (const s of sessions) {
+    const [sH, sM] = s.startTime.split(':').map(Number);
+    const [eH, eM] = s.endTime.split(':').map(Number);
+
+    if (isNaN(sH) || isNaN(eH) || sH > eH || (sH === eH && sM >= eM)) {
+      impossibleTimes.push(`${s.subjectName} on ${s.day} (${s.startTime} - ${s.endTime})`);
+    }
+  }
+
+  const sessionsByDay = new Map<string, ClassifiedSession[]>();
+  for (const s of sessions) {
+    if (!sessionsByDay.has(s.day)) sessionsByDay.set(s.day, []);
+    sessionsByDay.get(s.day)!.push(s);
+  }
+
+  for (const [day, daySessions] of sessionsByDay.entries()) {
+    for (let i = 0; i < daySessions.length; i++) {
+      for (let j = i + 1; j < daySessions.length; j++) {
+        const a = daySessions[i];
+        const b = daySessions[j];
+
+        if (a.startTime < b.endTime && b.startTime < a.endTime) {
+          overlappingSessions.push(`${day}: "${a.subjectName}" (${a.startTime}-${a.endTime}) overlaps with "${b.subjectName}" (${b.startTime}-${b.endTime})`);
+        }
+      }
+    }
+  }
+
+  if (impossibleTimes.length > 0) {
+    errors.push(`Found ${impossibleTimes.length} impossible time ranges.`);
+  }
+  if (overlappingSessions.length > 0) {
+    warnings.push(`Found ${overlappingSessions.length} overlapping session(s).`);
+  }
+
+  return {
+    isValid: errors.length === 0,
+    occupiedCellCount,
+    mappedCellCount,
+    groupedBlockCount: blocks.length,
+    classifiedSessionCount: sessions.length,
+    duplicateSessions,
+    overlappingSessions,
+    impossibleTimes,
+    errors,
+    warnings,
+  };
+}
+
+// ─── Stage 5: Zero-Cache Dynamic Rebuild API ────────────────────────────────
+
+export function rebuildTimetableFromGrid(
+  grid: DetectedGrid,
+  dictionary: SlotDictionary,
+  subjectConfigs: Record<string, { hasLab: boolean }> = {}
+): { subjects: ParsedSubject[]; timetableEntries: ClassifiedSession[]; validationReport: ValidationReport } {
+  const blocks = detectConsecutiveBlocks(grid, dictionary);
+  const sessions = classifyGroupedBlocks(blocks, subjectConfigs);
+  const validationReport = validatePipeline(grid, dictionary, blocks, sessions);
+
+  const subjectMap = new Map<string, ParsedSubject>();
+  blocks.forEach((block) => {
+    const key = block.subjectName.toLowerCase();
+    if (!subjectMap.has(key)) {
+      const config = subjectConfigs[key];
+      subjectMap.set(key, {
+        id: Math.random().toString(36).substr(2, 9),
+        name: block.subjectName,
+        code: block.code,
+        faculty: block.faculty,
+        color: COLOR_PALETTE[subjectMap.size % COLOR_PALETTE.length],
+        hasLab: config?.hasLab ?? false,
+        theoryTarget: 75,
+        labTarget: 75,
+        credits: null,
+      });
+    }
+  });
+
+  return {
+    subjects: Array.from(subjectMap.values()),
+    timetableEntries: sessions,
+    validationReport,
+  };
+}
+
+// ─── Main Pipeline Entry Point ─────────────────────────────────────────────
+
 export async function parseTimetableFromBuffer(
   bytes: ArrayBuffer,
-  fileName = 'timetable.pdf',
+  fileName = 'timetable.pdf'
 ): Promise<TimetableParseResult> {
   const globalStart = Date.now();
   const fileSizeKB = Math.round(bytes.byteLength / 1024);
@@ -153,8 +486,8 @@ export async function parseTimetableFromBuffer(
   const log: PipelineLog = {
     steps: [],
     parserType: 'gemini',
-    parserModel: 'gemini-2.0-flash',
-    parserReason: 'GEMINI_API_KEY is set — using Gemini as primary parser',
+    parserModel: 'gemini-2.5-flash-lite',
+    parserReason: 'Gemini 2D Grid Extraction + Deterministic Reconstruction Pipeline',
     rawMarkdownChars: 0,
     tableRowsDetected: 0,
     subjectCatalogEntries: 0,
@@ -202,7 +535,7 @@ export async function parseTimetableFromBuffer(
               },
             },
             {
-              text: TIMETABLE_SYSTEM_PROMPT,
+              text: RAW_GRID_EXTRACTION_PROMPT,
             },
           ],
         },
@@ -217,62 +550,55 @@ export async function parseTimetableFromBuffer(
     if (!rawText) {
       throw new Error('Gemini returned an empty response');
     }
+    log.rawMarkdownChars = rawText.length;
+    addStep('2D Grid Extraction', 'ok', `${rawText.length.toLocaleString()} chars received`, t);
 
-    addStep(
-      'Gemini AI extraction',
-      'ok',
-      `${rawText.length.toLocaleString()} chars received`,
-      t
-    );
-
-    // Parse the JSON response
     t = Date.now();
-    const parsed = parseLLMJson(rawText);
-    const normalized = normalizeParsedTimetable(parsed, 'Parsed using Gemini 2.0 Flash');
+    const rawJson = parseLLMJson(rawText) as {
+      columnHeaders?: ColumnHeader[];
+      gridRows?: GridRow[];
+      subjectCatalog?: SlotCatalogEntry[];
+    };
 
-    log.aiSubjects = normalized.subjects.length;
-    log.aiEntries = normalized.timetableEntries.length;
+    const detectedGrid: DetectedGrid = {
+      headers: rawJson.columnHeaders || [],
+      rows: rawJson.gridRows || [],
+      totalOccupiedCells: 0,
+    };
+    for (const r of detectedGrid.rows) {
+      detectedGrid.totalOccupiedCells += r.cells?.length || 0;
+    }
+    log.tableRowsDetected = detectedGrid.rows.length;
 
-    // Apply auto lab detection
-    const finalResult = autoDetectLabSessions(normalized);
+    const slotDictionary = buildSlotDictionary(rawJson.subjectCatalog || []);
+    log.subjectCatalogEntries = slotDictionary.entries.length;
+    addStep('Slot Dictionary Built', 'ok', `${slotDictionary.entries.length} catalog entries`, t);
 
-    log.finalSubjects = finalResult.subjects.length;
-    log.finalEntries = finalResult.timetableEntries.length;
-
-    addStep(
-      'Normalization & lab detection',
-      finalResult.timetableEntries.length > 0 ? 'ok' : 'warn',
-      `${finalResult.subjects.length} subjects · ${finalResult.timetableEntries.length} entries`,
-      t
-    );
-
-    // Integrity check
     t = Date.now();
-    const subjectNames = new Set(finalResult.subjects.map(s => s.name.toLowerCase()));
-    const entrySubjectNames = new Set(finalResult.timetableEntries.map(e => e.subjectName.toLowerCase()));
-    const orphanedSubjects = [...subjectNames].filter(n => !entrySubjectNames.has(n));
-    const unmappedEntries = [...entrySubjectNames].filter(n => !subjectNames.has(n));
+    const groupedBlocks = detectConsecutiveBlocks(detectedGrid, slotDictionary);
+    const rebuildRes = rebuildTimetableFromGrid(detectedGrid, slotDictionary);
 
-    if (orphanedSubjects.length > 0) {
-      log.warnings.push(`${orphanedSubjects.length} subject(s) have no timetable entries: ${orphanedSubjects.join(', ')}`);
-    }
-    if (unmappedEntries.length > 0) {
-      log.warnings.push(`${unmappedEntries.length} timetable entry subject(s) not in subject list: ${unmappedEntries.join(', ')}`);
-    }
+    log.finalSubjects = rebuildRes.subjects.length;
+    log.finalEntries = rebuildRes.timetableEntries.length;
 
-    addStep(
-      'Validation',
-      log.warnings.length > 0 ? 'warn' : 'ok',
-      `${finalResult.subjects.length} subjects · ${finalResult.timetableEntries.length} entries · ${log.warnings.length} warning(s)`,
-      t
-    );
+    addStep('Deterministic Block Grouping', 'ok', `${groupedBlocks.length} blocks constructed`, t);
+
+    const validationReport = validatePipeline(detectedGrid, slotDictionary, groupedBlocks, rebuildRes.timetableEntries);
+    log.warnings.push(...validationReport.warnings);
+    addStep('Validation Engine', validationReport.isValid ? 'ok' : 'warn', `${validationReport.errors.length} error(s) · ${validationReport.warnings.length} warning(s)`, t);
 
     log.processingMs = Date.now() - globalStart;
 
     return {
-      ...finalResult,
+      subjects: rebuildRes.subjects,
+      timetableEntries: rebuildRes.timetableEntries,
+      verificationLog: `Processed via Deterministic Grid Pipeline (${rebuildRes.subjects.length} subjects, ${rebuildRes.timetableEntries.length} entries)`,
       pipelineLog: log,
-      rawMarkdown: `[PDF processed directly by Gemini — no raw markdown available]`,
+      rawMarkdown: rawText,
+      detectedGrid,
+      slotDictionary,
+      groupedBlocks,
+      validationReport,
     };
   } catch (error: unknown) {
     const errMsg = error instanceof Error ? error.message : String(error);
@@ -284,9 +610,7 @@ export async function parseTimetableFromBuffer(
 }
 
 function parseLLMJson(raw: string): unknown {
-  // Strip markdown fences if present
   const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-
   try {
     return JSON.parse(stripped);
   } catch {
@@ -294,164 +618,6 @@ function parseLLMJson(raw: string): unknown {
     if (!jsonMatch) {
       throw new Error('Gemini response did not contain valid JSON');
     }
-    try {
-      return JSON.parse(jsonMatch[0]);
-    } catch {
-      throw new Error('Gemini response contained JSON-like content but could not be parsed');
-    }
+    return JSON.parse(jsonMatch[0]);
   }
-}
-
-function normalizeParsedTimetable(raw: unknown, verificationLog: string): ParsedTimetable {
-  if (!isRecord(raw) || !Array.isArray(raw.subjects) || !Array.isArray(raw.timetableEntries)) {
-    throw new Error('Gemini JSON did not match the timetable schema');
-  }
-
-  const timetable = raw as {
-    subjects: unknown[];
-    timetableEntries: unknown[];
-  };
-
-  const colors = [
-    '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
-    '#8B5CF6', '#EC4899', '#06B6D4', '#6366F1',
-  ];
-  const subjectMap = new Map<string, ParsedTimetable['subjects'][number]>();
-
-  timetable.subjects.forEach((rawSubject, index) => {
-    const subject = isRecord(rawSubject) ? rawSubject : {};
-    const name = readString(subject.name).trim();
-    if (!name) return;
-
-    subjectMap.set(name.toLowerCase(), {
-      name,
-      code: readString(subject.code, 'SUBJ').trim() || 'SUBJ',
-      faculty: readString(subject.faculty, 'Unknown Faculty').trim() || 'Unknown Faculty',
-      color: /^#[0-9A-F]{6}$/i.test(readString(subject.color))
-        ? readString(subject.color)
-        : colors[index % colors.length],
-      hasLab: Boolean(subject.hasLab),
-    });
-  });
-
-  const validDays = new Set(['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']);
-  const timetableEntries: ParsedTimetable['timetableEntries'] = [];
-
-  timetable.timetableEntries.forEach(rawEntry => {
-    const entry = isRecord(rawEntry) ? rawEntry : {};
-    const day = readString(entry.day).trim().toUpperCase();
-    const subjectName = readString(entry.subjectName).trim();
-    const componentType = readString(entry.componentType).trim().toUpperCase() === 'LAB' ? 'LAB' : 'THEORY';
-    const startTime = normalizeTime(entry.startTime);
-    const endTime = normalizeTime(entry.endTime);
-
-    if (!validDays.has(day) || !subjectName || !startTime || !endTime) return;
-
-    if (!subjectMap.has(subjectName.toLowerCase())) {
-      subjectMap.set(subjectName.toLowerCase(), {
-        name: subjectName,
-        code: 'SUBJ',
-        faculty: 'Unknown Faculty',
-        color: colors[subjectMap.size % colors.length],
-        hasLab: componentType === 'LAB',
-      });
-    } else if (componentType === 'LAB') {
-      const existing = subjectMap.get(subjectName.toLowerCase());
-      if (existing) existing.hasLab = true;
-    }
-
-    timetableEntries.push({ day, subjectName, componentType, startTime, endTime });
-  });
-
-  if (subjectMap.size === 0 || timetableEntries.length === 0) {
-    throw new Error('Gemini did not extract any usable timetable entries');
-  }
-
-  return {
-    subjects: Array.from(subjectMap.values()),
-    timetableEntries,
-    verificationLog,
-  };
-}
-
-/**
- * Auto-detect lab sessions: merges consecutive classes of the same subject on the same day.
- * If the merged class duration is >= 100 minutes (2 periods), classifies it as a LAB session.
- */
-function autoDetectLabSessions(timetable: ParsedTimetable): ParsedTimetable {
-  const entriesByDay = new Map<string, typeof timetable.timetableEntries>();
-
-  for (const entry of timetable.timetableEntries) {
-    const day = entry.day.toUpperCase();
-    if (!entriesByDay.has(day)) entriesByDay.set(day, []);
-    entriesByDay.get(day)!.push(entry);
-  }
-
-  const mergedEntries: typeof timetable.timetableEntries = [];
-
-  for (const entries of entriesByDay.values()) {
-    const sorted = [...entries].sort((a, b) => a.startTime.localeCompare(b.startTime));
-    const dayMerged: typeof timetable.timetableEntries = [];
-
-    for (const entry of sorted) {
-      if (dayMerged.length === 0) {
-        dayMerged.push({ ...entry });
-        continue;
-      }
-      const last = dayMerged[dayMerged.length - 1];
-      const [lastEndH, lastEndM] = last.endTime.split(':').map(Number);
-      const [currStartH, currStartM] = entry.startTime.split(':').map(Number);
-      const gapMinutes = (currStartH * 60 + currStartM) - (lastEndH * 60 + lastEndM);
-
-      if (last.subjectName.toLowerCase() === entry.subjectName.toLowerCase() && gapMinutes >= 0 && gapMinutes <= 15) {
-        last.endTime = entry.endTime;
-        if (entry.componentType === 'LAB') last.componentType = 'LAB';
-      } else {
-        dayMerged.push({ ...entry });
-      }
-    }
-    mergedEntries.push(...dayMerged);
-  }
-
-  const finalEntries = mergedEntries.map(entry => {
-    const [startH, startM] = entry.startTime.split(':').map(Number);
-    const [endH, endM] = entry.endTime.split(':').map(Number);
-    const durationMinutes = (endH * 60 + endM) - (startH * 60 + startM);
-
-    if (durationMinutes >= 100) {
-      const subject = timetable.subjects.find(s => s.name.toLowerCase() === entry.subjectName.toLowerCase());
-      if (subject) subject.hasLab = true;
-      return { ...entry, componentType: 'LAB' as const };
-    }
-    return entry;
-  });
-
-  return {
-    ...timetable,
-    timetableEntries: finalEntries,
-    verificationLog: timetable.verificationLog + '; consecutive slots merged & lab classification applied',
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function readString(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function normalizeTime(value: unknown): string | null {
-  const text = String(value || '').trim();
-  const match = text.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-
-  let hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-
-  // Fallback to implicit afternoon hours (1:00 PM to 6:00 PM)
-  if (hour >= 1 && hour <= 6) hour += 12;
-
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
