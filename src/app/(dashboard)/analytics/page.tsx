@@ -53,39 +53,6 @@ export default function AnalyticsPage() {
     events, holidays, extraClasses, attendanceCredits, isHydrated 
   } = useAttendanceStore();
 
-  const hasSubjects = (onboarding.subjects?.length ?? 0) > 0 || (onboarding.timetableEntries?.length ?? 0) > 0 || subjectSummaries.length > 0;
-
-  if (!mounted || !isHydrated) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 max-w-md mx-auto">
-        <div className="h-10 w-10 rounded-full border-2 border-border border-t-primary animate-spin" />
-        <p className="text-xs text-muted-foreground font-semibold">Loading Analytics Data...</p>
-      </div>
-    );
-  }
-
-  if (!hasSubjects) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-center space-y-6 max-w-md mx-auto">
-        <div className="w-16 h-16 rounded-2xl bg-secondary border border-border flex items-center justify-center text-muted-foreground">
-          <Activity className="h-8 w-8 text-muted-foreground" />
-        </div>
-        <div className="space-y-2">
-          <h1 className="text-2xl font-bold text-foreground">No Analytics Available</h1>
-          <p className="text-sm text-muted-foreground">
-            Configure your semester subjects and timetable to unlock detailed attendance insights.
-          </p>
-        </div>
-        <a
-          href="/analyze"
-          className="inline-flex items-center gap-2 rounded-xl bg-primary text-primary-foreground px-5 py-2.5 text-sm font-semibold hover:opacity-95 transition-opacity shadow-sm"
-        >
-          Import Timetable PDF
-        </a>
-      </div>
-    );
-  }
-
   const conductedCount = useMemo(() => lectures.filter(l => l.status === 'CONDUCTED').length, [lectures]);
 
   // ── Weekly chart data ──
@@ -129,6 +96,39 @@ export default function AnalyticsPage() {
       };
     });
   }, [lectures, onboarding.startDate]);
+
+  const hasSubjects = (onboarding.subjects?.length ?? 0) > 0 || (onboarding.timetableEntries?.length ?? 0) > 0 || subjectSummaries.length > 0;
+
+  if (!mounted || !isHydrated) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 max-w-md mx-auto">
+        <div className="h-10 w-10 rounded-full border-2 border-border border-t-primary animate-spin" />
+        <p className="text-xs text-muted-foreground font-semibold">Loading Analytics Data...</p>
+      </div>
+    );
+  }
+
+  if (!hasSubjects) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center space-y-6 max-w-md mx-auto">
+        <div className="w-16 h-16 rounded-2xl bg-secondary border border-border flex items-center justify-center text-muted-foreground">
+          <Activity className="h-8 w-8 text-muted-foreground" />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-bold text-foreground">No Analytics Available</h1>
+          <p className="text-sm text-muted-foreground">
+            Configure your semester subjects and timetable to unlock detailed attendance insights.
+          </p>
+        </div>
+        <a
+          href="/analyze"
+          className="inline-flex items-center gap-2 rounded-xl bg-primary text-primary-foreground px-5 py-2.5 text-sm font-semibold hover:opacity-95 transition-opacity shadow-sm"
+        >
+          Import Timetable PDF
+        </a>
+      </div>
+    );
+  }
 
   // ── Subject bar chart data ──
   const subjectBarData = subjectSummaries.map(({ subject, overallStats: stats }, idx) => ({
