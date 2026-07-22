@@ -202,6 +202,11 @@ export async function loadStateFromSupabase(): Promise<boolean> {
     // Load auxiliary meta from description field
     const meta = await loadMetaData(semester.id);
     if (meta) {
+      if (meta.subjects && Array.isArray(meta.subjects) && meta.subjects.length > 0) {
+        if (!onboarding.subjects || onboarding.subjects.length === 0) {
+          onboarding.subjects = meta.subjects as OnboardingData['subjects'];
+        }
+      }
       if (meta.timetableEntries) {
         onboarding.timetableEntries = meta.timetableEntries as OnboardingData['timetableEntries'];
       }
@@ -289,6 +294,7 @@ export async function saveStateToSupabase(state: {
         .eq('semester_id', semesterId);
 
       const existingMap = new Map((existingSubjects || []).map((s: { id: string; name: string }) => [s.name, s.id]));
+      const isUUID = (str?: string) => Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
 
       for (const subject of state.onboarding.subjects) {
         const existingId = existingMap.get(subject.name);
@@ -303,17 +309,23 @@ export async function saveStateToSupabase(state: {
             })
             .eq('id', existingId);
         } else {
-          await supabase
+          const insertPayload: Record<string, unknown> = {
+            semester_id: semesterId,
+            name: subject.name,
+            code: subject.code || null,
+            faculty: subject.faculty || null,
+            credits: subject.credits ?? null,
+            color: subject.color || null,
+          };
+          if (isUUID(subject.id)) {
+            insertPayload.id = subject.id;
+          }
+          const { error: insErr } = await supabase
             .from('subjects')
-            .insert({
-              id: subject.id,
-              semester_id: semesterId,
-              name: subject.name,
-              code: subject.code || null,
-              faculty: subject.faculty || null,
-              credits: subject.credits ?? null,
-              color: subject.color || null,
-            });
+            .insert(insertPayload);
+          if (insErr) {
+            console.warn('[Acadex Persistence] Subject table insert warning:', insErr.message);
+          }
         }
       }
     }
@@ -330,6 +342,7 @@ export async function saveStateToSupabase(state: {
 
     const meta = {
       userName: state.onboarding.userName,
+      subjects: state.onboarding.subjects, // Primary JSON backup fallback
       timetableEntries: state.onboarding.timetableEntries,
       subjectExtras,
       onboardingCompletedAt: state.onboarding.onboardingCompletedAt,

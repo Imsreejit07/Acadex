@@ -217,7 +217,9 @@ export default function DashboardPage() {
     [events]
   );
 
-  if (subjectSummaries.length === 0) {
+  const hasSubjectsOrTimetable = (onboarding.subjects?.length ?? 0) > 0 || (onboarding.timetableEntries?.length ?? 0) > 0 || subjectSummaries.length > 0;
+
+  if (!hasSubjectsOrTimetable) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center space-y-6 max-w-md mx-auto">
         <div className="w-16 h-16 rounded-2xl bg-secondary border border-border flex items-center justify-center text-muted-foreground">
