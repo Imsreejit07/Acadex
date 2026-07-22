@@ -508,7 +508,7 @@ export async function parseTimetableFromBuffer(
   let t = Date.now();
   addStep('PDF received', 'ok', `${fileName} · ${fileSizeKB} KB`, t);
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY?.replace(/^\uFEFF/, '').trim();
 
   if (!apiKey) {
     addStep('Gemini API', 'error', 'GEMINI_API_KEY is not configured in Vercel environment variables', Date.now());
