@@ -139,7 +139,7 @@ export async function testLlmConnection(): Promise<{ success: boolean; parserTyp
   try {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: 'gemini-2.5-flash',
       contents: 'Say "Connection OK" in exactly 2 words',
     });
     const text = response.text?.trim() || 'No response';
@@ -211,7 +211,7 @@ export async function parseTimetableFromBuffer(
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: 'gemini-2.5-flash',
       contents: [
         {
           role: 'user',
