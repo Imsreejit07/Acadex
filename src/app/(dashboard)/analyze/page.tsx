@@ -359,6 +359,30 @@ export default function AnalyzePDFPage() {
     });
   };
 
+  const handleBulkTimeShift = (minutes: number) => {
+    setEntries(prev =>
+      prev.map(e => {
+        const shiftTime = (timeStr: string) => {
+          const [h, m] = (timeStr || '').split(':').map(Number);
+          if (isNaN(h) || isNaN(m)) return timeStr;
+          let totalMinutes = h * 60 + m + minutes;
+          totalMinutes = (totalMinutes + 1440) % 1440;
+          const newH = Math.floor(totalMinutes / 60).toString().padStart(2, '0');
+          const newM = (totalMinutes % 60).toString().padStart(2, '0');
+          return `${newH}:${newM}`;
+        };
+        return {
+          ...e,
+          startTime: shiftTime(e.startTime),
+          endTime: shiftTime(e.endTime),
+        };
+      })
+    );
+    const sign = minutes > 0 ? '+' : '';
+    const label = Math.abs(minutes) >= 60 ? `${sign}${minutes / 60}h` : `${sign}${minutes}m`;
+    toast.success(`Shifted all ${entries.length} slots by ${label}`);
+  };
+
   const handleEntryFieldChange = (id: string, field: keyof TimetableEntryItem, value: string) => {
     setEntries(prev =>
       prev.map(e => (e.id === id ? { ...e, [field]: value } : e))
@@ -658,10 +682,69 @@ export default function AnalyzePDFPage() {
 
             {/* Schedule slots and manual overrides */}
             <div className="space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">Schedule Slots ({entries.length})</h3>
+              <div className="flex items-center justify-between pb-2 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-bold text-foreground uppercase tracking-wider">Schedule Slots ({entries.length})</h3>
+                </div>
               </div>
+
+              {/* Bulk Time Adjustment Widget */}
+              {entries.length > 0 && (
+                <div className="p-3 rounded-xl bg-card border border-border space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                      <Clock className="h-3.5 w-3.5 text-primary" />
+                      <span>Bulk Time Shift Tool</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">Adjust all slot times at once</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleBulkTimeShift(-60)}
+                      className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-primary/10 hover:text-primary border border-border text-xs font-semibold text-foreground transition-all flex items-center gap-1"
+                    >
+                      -1 Hour
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBulkTimeShift(60)}
+                      className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-primary/10 hover:text-primary border border-border text-xs font-semibold text-foreground transition-all flex items-center gap-1"
+                    >
+                      +1 Hour
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBulkTimeShift(-120)}
+                      className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-primary/10 hover:text-primary border border-border text-xs font-semibold text-foreground transition-all flex items-center gap-1"
+                    >
+                      -2 Hours
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBulkTimeShift(120)}
+                      className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-primary/10 hover:text-primary border border-border text-xs font-semibold text-foreground transition-all flex items-center gap-1"
+                    >
+                      +2 Hours
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBulkTimeShift(-30)}
+                      className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-primary/10 hover:text-primary border border-border text-xs font-semibold text-foreground transition-all flex items-center gap-1"
+                    >
+                      -30 Mins
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBulkTimeShift(30)}
+                      className="px-2.5 py-1 rounded-lg bg-secondary hover:bg-primary/10 hover:text-primary border border-border text-xs font-semibold text-foreground transition-all flex items-center gap-1"
+                    >
+                      +30 Mins
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2 max-h-[500px] overflow-y-auto pr-2">
                 {entries.map((entry) => {

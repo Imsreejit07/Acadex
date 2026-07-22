@@ -167,8 +167,8 @@ Return ONLY a valid JSON object matching this exact shape:
 }
 
 ### EXTRACTION INSTRUCTIONS:
-1. "columnHeaders": Identify all time columns from left to right. Extract start/end times in 24h format (HH:mm). Mark lunch/breaks as "isBreak": true.
-2. "gridRows": Scan each day (MONDAY to SUNDAY). For every non-empty cell under column header "colIndex", extract the raw cell text (e.g. "G", "CS101", or full subject name). Do not guess or modify cell contents.
+1. "columnHeaders": Identify all time columns from left to right. colIndex 0 is the DAY column ("MONDAY", "TUESDAY"). The FIRST time slot column (e.g. 09:00-09:55) MUST be colIndex: 1. Extract start/end times in 24h format (HH:mm). Mark lunch/breaks as "isBreak": true.
+2. "gridRows": Scan each day (MONDAY to SUNDAY). For every non-empty cell under column header "colIndex" (1-indexed matching columnHeaders), extract the raw cell text (e.g. "G", "CS101", or full subject name). Do not guess or modify cell contents.
 3. "subjectCatalog": Extract the subject/slot lookup legend table if present. Map every slot code (e.g., "G", "H", "CS101") to its full subject name, course code, and faculty.
 4. DO NOT do time math, DO NOT merge cells across columns, DO NOT invent slots. Output ONLY raw grid coordinates and catalog data.`;
 
@@ -242,29 +242,36 @@ export function detectConsecutiveBlocks(
   const groupedBlocks: GroupedBlock[] = [];
 
   // Filter non-time headers (e.g. DAY / TIME labels)
-  const validHeaders = (grid.headers || []).filter(
-    h => !/^(day|time|mon|tue|wed|thu|fri|sat|sun)\b/i.test(h.label.trim())
-  );
+  const validHeaders = [...(grid.headers || [])]
+    .filter(h => !/^(day|time|mon|tue|wed|thu|fri|sat|sun)\b/i.test(h.label.trim()))
+    .sort((a, b) => a.colIndex - b.colIndex);
 
-  // Determine minimum cell column index among lecture cells
-  let minCellCol = Infinity;
+  // Collect all unique column indices present in lecture grid cells
+  const cellColIndicesSet = new Set<number>();
   for (const row of grid.rows || []) {
     for (const cell of row.cells || []) {
       const text = cell.rawText.trim();
       if (text && !/^\s*(lunch|tea|break|recess|-|\|)\s*$/i.test(text)) {
-        minCellCol = Math.min(minCellCol, cell.colIndex);
+        cellColIndicesSet.add(cell.colIndex);
       }
     }
   }
 
-  // Header index auto-alignment to prevent 1-hour time shifts
+  const sortedCellCols = Array.from(cellColIndicesSet).sort((a, b) => a - b);
   const headerMap = new Map<number, ColumnHeader>();
-  if (validHeaders.length > 0 && minCellCol !== Infinity && validHeaders[0].colIndex < minCellCol) {
-    const shift = minCellCol - validHeaders[0].colIndex;
+
+  // Determine positional index mapping between header columns and cell columns
+  if (validHeaders.length > 0 && sortedCellCols.length > 0) {
+    const minHeaderCol = validHeaders[0].colIndex;
+    const minCellCol = sortedCellCols[0];
+
+    // If headers start at colIndex 0 or 1, and cells start at colIndex 1 or 2, calculate exact offset
+    const offset = minCellCol - minHeaderCol;
+
     validHeaders.forEach(h => {
-      const alignedCol = h.colIndex + shift;
+      const targetCol = h.colIndex + offset;
       const isBreak = h.isBreak || /lunch|break|tea|recess/i.test(h.label);
-      headerMap.set(alignedCol, { ...h, colIndex: alignedCol, isBreak });
+      headerMap.set(targetCol, { ...h, colIndex: targetCol, isBreak });
     });
   } else {
     validHeaders.forEach(h => {
