@@ -244,8 +244,10 @@ export default function AnalyzePDFPage() {
       if (data.groupedBlocks) setGroupedBlocks(data.groupedBlocks);
       if (data.validationReport) setValidationReport(data.validationReport);
 
-      if (!response.ok) {
-        throw new Error(data.error || data.details || 'Failed to analyze PDF');
+      if (!response.ok || (data.validationReport && !data.validationReport.isValid)) {
+        const errorMsg = data.error || (data.validationReport?.errors || []).join('; ') || 'Timetable parsing failed validation checks';
+        toast.error(`Validation Failed: ${errorMsg}`);
+        return;
       }
 
       // Initialize extracted subjects

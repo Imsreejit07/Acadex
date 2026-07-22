@@ -139,10 +139,10 @@ Return ONLY a valid JSON object matching this exact shape:
   "columnHeaders": [
     {
       "colIndex": 1,
-      "startTime": "10:00",
-      "endTime": "10:55",
+      "startTime": "09:00",
+      "endTime": "09:55",
       "isBreak": false,
-      "label": "10:00-10:55"
+      "label": "9:00-9:55"
     }
   ],
   "gridRows": [
@@ -167,13 +167,10 @@ Return ONLY a valid JSON object matching this exact shape:
 }
 
 ### EXTRACTION INSTRUCTIONS:
-1. "columnHeaders": Identify all time columns from left to right. colIndex 1 MUST be strictly the FIRST time period column printed in the table header. Ignore any "Day/Time" label column on the far left.
-   - Read the EXACT start and end times AS PRINTED in the PDF table header row for each column.
-   - Do NOT invent or default to 09:00 if the first period in the PDF table actually starts at 10:00.
-   - Extract start/end times in 24h format (HH:mm). Mark lunch/breaks as "isBreak": true.
-2. "gridRows": Scan each day (MONDAY to SUNDAY). For every non-empty cell under time column "colIndex", extract the raw cell text (e.g. "G", "CS101", or full subject name). The colIndex MUST match the exact column index from "columnHeaders".
+1. "columnHeaders": Identify all time columns from left to right. Extract start/end times in 24h format (HH:mm). Mark lunch/breaks as "isBreak": true.
+2. "gridRows": Scan each day (MONDAY to SUNDAY). For every non-empty cell under column header "colIndex", extract the raw cell text (e.g. "G", "CS101", or full subject name). Do not guess or modify cell contents.
 3. "subjectCatalog": Extract the subject/slot lookup legend table if present. Map every slot code (e.g., "G", "H", "CS101") to its full subject name, course code, and faculty.
-4. DO NOT shift time slots, DO NOT alter header times, DO NOT invent slots. Output ONLY raw grid coordinates and catalog data.`;
+4. DO NOT do time math, DO NOT merge cells across columns, DO NOT invent slots. Output ONLY raw grid coordinates and catalog data.`;
 
 // ─── Test Connection Handler ──────────────────────────────────────────────
 
@@ -243,12 +240,42 @@ export function detectConsecutiveBlocks(
   dictionary: SlotDictionary
 ): GroupedBlock[] {
   const groupedBlocks: GroupedBlock[] = [];
-  const headerMap = new Map<number, ColumnHeader>();
-  grid.headers.forEach(h => headerMap.set(h.colIndex, h));
 
-  for (const row of grid.rows) {
+  // Filter non-time headers (e.g. DAY / TIME labels)
+  const validHeaders = (grid.headers || []).filter(
+    h => !/^(day|time|mon|tue|wed|thu|fri|sat|sun)\b/i.test(h.label.trim())
+  );
+
+  // Determine minimum cell column index among lecture cells
+  let minCellCol = Infinity;
+  for (const row of grid.rows || []) {
+    for (const cell of row.cells || []) {
+      const text = cell.rawText.trim();
+      if (text && !/^\s*(lunch|tea|break|recess|-|\|)\s*$/i.test(text)) {
+        minCellCol = Math.min(minCellCol, cell.colIndex);
+      }
+    }
+  }
+
+  // Header index auto-alignment to prevent 1-hour time shifts
+  const headerMap = new Map<number, ColumnHeader>();
+  if (validHeaders.length > 0 && minCellCol !== Infinity && validHeaders[0].colIndex < minCellCol) {
+    const shift = minCellCol - validHeaders[0].colIndex;
+    validHeaders.forEach(h => {
+      const alignedCol = h.colIndex + shift;
+      const isBreak = h.isBreak || /lunch|break|tea|recess/i.test(h.label);
+      headerMap.set(alignedCol, { ...h, colIndex: alignedCol, isBreak });
+    });
+  } else {
+    validHeaders.forEach(h => {
+      const isBreak = h.isBreak || /lunch|break|tea|recess/i.test(h.label);
+      headerMap.set(h.colIndex, { ...h, isBreak });
+    });
+  }
+
+  for (const row of grid.rows || []) {
     const day = row.day.toUpperCase();
-    const sortedCells = [...row.cells].sort((a, b) => a.colIndex - b.colIndex);
+    const sortedCells = [...(row.cells || [])].sort((a, b) => a.colIndex - b.colIndex);
 
     let currentBlock: {
       slotCode: string;
@@ -262,18 +289,38 @@ export function detectConsecutiveBlocks(
 
     for (const cell of sortedCells) {
       const header = headerMap.get(cell.colIndex);
+      // Skip missing headers or explicitly marked break columns
       if (!header || header.isBreak) continue;
 
       const rawText = cell.rawText.trim();
-      if (!rawText || rawText === '-' || rawText === '|') continue;
+      // Skip empty, break, lunch, or separator text
+      if (!rawText || /^\s*(lunch|tea|break|recess|-|\|)\s*$/i.test(rawText)) continue;
 
       const upperKey = rawText.toUpperCase();
-      const mapped = dictionary.lookupMap[upperKey];
+      
+      // Multi-tier lookup: Exact key -> Prefix key (e.g. G1 -> G) -> Subject Name match
+      let mapped = dictionary.lookupMap[upperKey];
+      if (!mapped) {
+        const prefixKey = upperKey.replace(/\d+$/, '');
+        mapped = dictionary.lookupMap[prefixKey];
+      }
+      if (!mapped) {
+        mapped = dictionary.entries.find(
+          e => e.slotCode.toUpperCase() === upperKey ||
+               e.code.toUpperCase() === upperKey ||
+               e.subjectName.toUpperCase().includes(upperKey)
+        );
+      }
 
-      const slotCode = mapped ? mapped.slotCode : upperKey;
-      const subjectName = mapped ? mapped.subjectName : rawText;
-      const faculty = mapped ? mapped.faculty : 'Unknown Faculty';
-      const code = mapped ? mapped.code : 'SUBJ';
+      // Strict catalog requirement: If not mapped in slot dictionary, do NOT invent Unknown
+      if (!mapped) {
+        continue;
+      }
+
+      const slotCode = mapped.slotCode;
+      const subjectName = mapped.subjectName;
+      const faculty = mapped.faculty;
+      const code = mapped.code;
 
       if (
         currentBlock &&
@@ -284,21 +331,23 @@ export function detectConsecutiveBlocks(
         currentBlock.cellCount += 1;
       } else {
         if (currentBlock) {
-          const startH = headerMap.get(currentBlock.startCol)!;
-          const endH = headerMap.get(currentBlock.endCol)!;
-          groupedBlocks.push({
-            id: Math.random().toString(36).substr(2, 9),
-            day,
-            slotCode: currentBlock.slotCode,
-            subjectName: currentBlock.subjectName,
-            faculty: currentBlock.faculty,
-            code: currentBlock.code,
-            startCol: currentBlock.startCol,
-            endCol: currentBlock.endCol,
-            startTime: startH.startTime,
-            endTime: endH.endTime,
-            cellCount: currentBlock.cellCount,
-          });
+          const startH = headerMap.get(currentBlock.startCol);
+          const endH = headerMap.get(currentBlock.endCol);
+          if (startH && endH) {
+            groupedBlocks.push({
+              id: Math.random().toString(36).substr(2, 9),
+              day,
+              slotCode: currentBlock.slotCode,
+              subjectName: currentBlock.subjectName,
+              faculty: currentBlock.faculty,
+              code: currentBlock.code,
+              startCol: currentBlock.startCol,
+              endCol: currentBlock.endCol,
+              startTime: startH.startTime,
+              endTime: endH.endTime,
+              cellCount: currentBlock.cellCount,
+            });
+          }
         }
 
         currentBlock = {
@@ -314,21 +363,23 @@ export function detectConsecutiveBlocks(
     }
 
     if (currentBlock) {
-      const startH = headerMap.get(currentBlock.startCol)!;
-      const endH = headerMap.get(currentBlock.endCol)!;
-      groupedBlocks.push({
-        id: Math.random().toString(36).substr(2, 9),
-        day,
-        slotCode: currentBlock.slotCode,
-        subjectName: currentBlock.subjectName,
-        faculty: currentBlock.faculty,
-        code: currentBlock.code,
-        startCol: currentBlock.startCol,
-        endCol: currentBlock.endCol,
-        startTime: startH.startTime,
-        endTime: endH.endTime,
-        cellCount: currentBlock.cellCount,
-      });
+      const startH = headerMap.get(currentBlock.startCol);
+      const endH = headerMap.get(currentBlock.endCol);
+      if (startH && endH) {
+        groupedBlocks.push({
+          id: Math.random().toString(36).substr(2, 9),
+          day,
+          slotCode: currentBlock.slotCode,
+          subjectName: currentBlock.subjectName,
+          faculty: currentBlock.faculty,
+          code: currentBlock.code,
+          startCol: currentBlock.startCol,
+          endCol: currentBlock.endCol,
+          startTime: startH.startTime,
+          endTime: endH.endTime,
+          cellCount: currentBlock.cellCount,
+        });
+      }
     }
   }
 
@@ -382,8 +433,29 @@ export function validatePipeline(
   const impossibleTimes: string[] = [];
 
   let occupiedCellCount = 0;
-  for (const r of grid.rows) {
-    occupiedCellCount += r.cells?.length || 0;
+  const unmappedCells: string[] = [];
+
+  for (const r of grid.rows || []) {
+    for (const c of r.cells || []) {
+      const text = c.rawText.trim();
+      if (!text || /^\s*(lunch|tea|break|recess|-|\|)\s*$/i.test(text)) continue;
+      occupiedCellCount += 1;
+
+      const upperKey = text.toUpperCase();
+      const prefixKey = upperKey.replace(/\d+$/, '');
+      const isMapped =
+        dictionary.lookupMap[upperKey] ||
+        dictionary.lookupMap[prefixKey] ||
+        dictionary.entries.some(
+          e => e.slotCode.toUpperCase() === upperKey ||
+               e.code.toUpperCase() === upperKey ||
+               e.subjectName.toUpperCase().includes(upperKey)
+        );
+
+      if (!isMapped) {
+        unmappedCells.push(`${r.day} col ${c.colIndex}: "${text}"`);
+      }
+    }
   }
 
   let mappedCellCount = 0;
@@ -391,6 +463,12 @@ export function validatePipeline(
     mappedCellCount += b.cellCount;
   }
 
+  // 1. Check unmapped cell violations
+  if (unmappedCells.length > 0) {
+    errors.push(`Unmapped slot code(s) detected: ${unmappedCells.slice(0, 3).join(', ')}${unmappedCells.length > 3 ? ` (+${unmappedCells.length - 3} more)` : ''}. Slot mappings missing from legend.`);
+  }
+
+  // 2. Check time range validity
   for (const s of sessions) {
     const [sH, sM] = s.startTime.split(':').map(Number);
     const [eH, eM] = s.endTime.split(':').map(Number);
@@ -398,8 +476,14 @@ export function validatePipeline(
     if (isNaN(sH) || isNaN(eH) || sH > eH || (sH === eH && sM >= eM)) {
       impossibleTimes.push(`${s.subjectName} on ${s.day} (${s.startTime} - ${s.endTime})`);
     }
+
+    // Ensure no session is scheduled during standard lunch hours (12:30 - 13:30)
+    if (s.startTime >= '12:30' && s.endTime <= '13:30') {
+      errors.push(`Session "${s.subjectName}" on ${s.day} scheduled during lunch period (${s.startTime}-${s.endTime}).`);
+    }
   }
 
+  // 3. Overlap check
   const sessionsByDay = new Map<string, ClassifiedSession[]>();
   for (const s of sessions) {
     if (!sessionsByDay.has(s.day)) sessionsByDay.set(s.day, []);
@@ -423,7 +507,15 @@ export function validatePipeline(
     errors.push(`Found ${impossibleTimes.length} impossible time ranges.`);
   }
   if (overlappingSessions.length > 0) {
-    warnings.push(`Found ${overlappingSessions.length} overlapping session(s).`);
+    errors.push(`Found ${overlappingSessions.length} overlapping session(s).`);
+  }
+
+  // 4. Catalog consistency check: All sessions must belong to catalog
+  const catalogNames = new Set(dictionary.entries.map(e => e.subjectName.toLowerCase()));
+  for (const s of sessions) {
+    if (catalogNames.size > 0 && !catalogNames.has(s.subjectName.toLowerCase())) {
+      errors.push(`Hallucinated subject "${s.subjectName}" not found in slot catalog.`);
+    }
   }
 
   return {
@@ -450,6 +542,15 @@ export function rebuildTimetableFromGrid(
   const blocks = detectConsecutiveBlocks(grid, dictionary);
   const sessions = classifyGroupedBlocks(blocks, subjectConfigs);
   const validationReport = validatePipeline(grid, dictionary, blocks, sessions);
+
+  // Fail-Fast: If validation fails, do NOT import bad data!
+  if (!validationReport.isValid || validationReport.errors.length > 0) {
+    return {
+      subjects: [],
+      timetableEntries: [],
+      validationReport,
+    };
+  }
 
   const subjectMap = new Map<string, ParsedSubject>();
   blocks.forEach((block) => {
@@ -589,22 +690,9 @@ export async function parseTimetableFromBuffer(
       subjectCatalog?: SlotCatalogEntry[];
     };
 
-    let rawHeaders = rawJson.columnHeaders || [];
-    let rawRows = rawJson.gridRows || [];
-
-    // Normalize colIndex if OCR output is 0-indexed (e.g. colIndex: 0)
-    const minCol = rawHeaders.reduce((min, h) => (h.colIndex < min ? h.colIndex : min), Infinity);
-    if (minCol === 0) {
-      rawHeaders = rawHeaders.map(h => ({ ...h, colIndex: h.colIndex + 1 }));
-      rawRows = rawRows.map(r => ({
-        ...r,
-        cells: (r.cells || []).map(c => ({ ...c, colIndex: c.colIndex + 1 })),
-      }));
-    }
-
     const detectedGrid: DetectedGrid = {
-      headers: rawHeaders,
-      rows: rawRows,
+      headers: rawJson.columnHeaders || [],
+      rows: rawJson.gridRows || [],
       totalOccupiedCells: 0,
     };
     for (const r of detectedGrid.rows) {

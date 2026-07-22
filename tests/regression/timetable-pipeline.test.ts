@@ -102,4 +102,75 @@ describe('Deterministic Timetable Pipeline Regression Suite', () => {
 
     expect(result2.timetableEntries[0].componentType).toBe('LAB');
   });
+
+  it('6. Header Alignment: auto-aligns header colIndex 0 to cell colIndex 1 preventing 1-hour time shift', () => {
+    const dictionary = buildSlotDictionary(sampleCatalog);
+    const unalignedGrid: DetectedGrid = {
+      headers: [
+        { colIndex: 0, startTime: '09:00', endTime: '09:55', isBreak: false, label: '9:00-9:55' },
+        { colIndex: 1, startTime: '10:00', endTime: '10:55', isBreak: false, label: '10:00-10:55' },
+      ],
+      rows: [
+        {
+          day: 'MONDAY',
+          cells: [
+            { colIndex: 1, rawText: 'G' },
+          ],
+        },
+      ],
+      totalOccupiedCells: 1,
+    };
+
+    const blocks = detectConsecutiveBlocks(unalignedGrid, dictionary);
+    expect(blocks.length).toBe(1);
+    expect(blocks[0].startTime).toBe('09:00');
+    expect(blocks[0].endTime).toBe('09:55');
+  });
+
+  it('7. Lunch & Break Filtering: ignores break columns and lunch cell text completely', () => {
+    const dictionary = buildSlotDictionary(sampleCatalog);
+    const breakGrid: DetectedGrid = {
+      headers: [
+        { colIndex: 1, startTime: '09:00', endTime: '09:55', isBreak: false, label: '9:00-9:55' },
+        { colIndex: 2, startTime: '12:30', endTime: '13:30', isBreak: true, label: 'LUNCH BREAK' },
+      ],
+      rows: [
+        {
+          day: 'MONDAY',
+          cells: [
+            { colIndex: 1, rawText: 'G' },
+            { colIndex: 2, rawText: 'LUNCH' },
+          ],
+        },
+      ],
+      totalOccupiedCells: 2,
+    };
+
+    const blocks = detectConsecutiveBlocks(breakGrid, dictionary);
+    expect(blocks.length).toBe(1);
+    expect(blocks[0].subjectName).toBe('Object Oriented Programming');
+  });
+
+  it('8. Fail-Fast Gate: returns empty subjects and entries if unmapped slots exist', () => {
+    const dictionary = buildSlotDictionary(sampleCatalog);
+    const invalidGrid: DetectedGrid = {
+      headers: [
+        { colIndex: 1, startTime: '09:00', endTime: '09:55', isBreak: false, label: '9:00-9:55' },
+      ],
+      rows: [
+        {
+          day: 'MONDAY',
+          cells: [
+            { colIndex: 1, rawText: 'UNKNOWN_SLOT_XYZ' },
+          ],
+        },
+      ],
+      totalOccupiedCells: 1,
+    };
+
+    const result = rebuildTimetableFromGrid(invalidGrid, dictionary);
+    expect(result.validationReport.isValid).toBe(false);
+    expect(result.subjects.length).toBe(0);
+    expect(result.timetableEntries.length).toBe(0);
+  });
 });
