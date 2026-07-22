@@ -1,10 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { 
-  ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, 
-  Legend, Line, BarChart, Bar, Cell, PieChart, Pie 
-} from 'recharts';
+import dynamic from 'next/dynamic';
 import { 
   TrendingUp, Calendar, AlertCircle, Award, Hourglass, 
   CheckSquare, Activity, CalendarDays
@@ -13,15 +10,22 @@ import { useAttendanceStore } from '@/features/attendance/services/attendance-st
 import { getLectureMultiplier } from '@/features/attendance/services/attendance-engine';
 import type { SubjectConfig } from '@/features/attendance/services/attendance-store';
 
-// ─── Helpers ───────────────────────────────────────────────────────────
+// Dynamically import Recharts to prevent SSR SVG sizing & hydration issues
+const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
+const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
+const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
+const BarChart = dynamic(() => import('recharts').then(m => m.BarChart), { ssr: false });
+const Bar = dynamic(() => import('recharts').then(m => m.Bar), { ssr: false });
+const PieChart = dynamic(() => import('recharts').then(m => m.PieChart), { ssr: false });
+const Pie = dynamic(() => import('recharts').then(m => m.Pie), { ssr: false });
+const Cell = dynamic(() => import('recharts').then(m => m.Cell), { ssr: false });
+const CartesianGrid = dynamic(() => import('recharts').then(m => m.CartesianGrid), { ssr: false });
+const XAxis = dynamic(() => import('recharts').then(m => m.XAxis), { ssr: false });
+const YAxis = dynamic(() => import('recharts').then(m => m.YAxis), { ssr: false });
+const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
+const Legend = dynamic(() => import('recharts').then(m => m.Legend), { ssr: false });
 
-function attColor(pct: number | null, target: number): string {
-  if (pct === null) return '#64748b';
-  if (pct >= 85) return '#10b981';
-  if (pct >= target) return 'var(--foreground)';
-  if (pct >= target - 5) return '#f59e0b';
-  return '#f43f5e';
-}
+// ─── Helpers ───────────────────────────────────────────────────────────
 
 const SUBJECT_COLORS = [
   '#475569', '#64748b', '#94a3b8', '#334155', '#475569', '#1e293b',
@@ -97,13 +101,79 @@ export default function AnalyticsPage() {
     });
   }, [lectures, onboarding.startDate]);
 
+  // ── Subject bar chart data ──
+  const subjectBarData = useMemo(() => {
+    return subjectSummaries.map(({ subject, overallStats: stats }, idx) => ({
+      name: subject.code || (subject.name || 'Subject').slice(0, 6),
+      percentage: stats.attendancePercentage ?? 0,
+      color: getSubjectColor(subject, idx),
+    }));
+  }, [subjectSummaries]);
+
+  // ── Theory vs Lab pie data ──
+  const tvlData = useMemo(() => {
+    const theoryLectures = lectures.filter((l) => l.componentType !== 'LAB' && l.status === 'CONDUCTED');
+    const labLectures = lectures.filter((l) => l.componentType === 'LAB' && l.status === 'CONDUCTED');
+
+    let theoryAtt = 0;
+    let theoryTotal = 0;
+    for (const l of theoryLectures) {
+      const mult = getLectureMultiplier(l.componentType, l.startTime, l.endTime);
+      theoryTotal += mult;
+      if (l.attendance === 'PRESENT') theoryAtt += mult;
+    }
+
+    let labAtt = 0;
+    let labTotal = 0;
+    for (const l of labLectures) {
+      const mult = getLectureMultiplier(l.componentType, l.startTime, l.endTime);
+      labTotal += mult;
+      if (l.attendance === 'PRESENT') labAtt += mult;
+    }
+
+    return [
+      {
+        name: 'Theory',
+        value: theoryAtt,
+        total: theoryTotal,
+        pct: theoryTotal > 0 ? Math.round((theoryAtt / theoryTotal) * 100) : 0,
+        fill: '#475569',
+      },
+      {
+        name: 'Lab',
+        value: labAtt,
+        total: labTotal,
+        pct: labTotal > 0 ? Math.round((labAtt / labTotal) * 100) : 0,
+        fill: '#94a3b8',
+      },
+    ].filter((d) => d.total > 0);
+  }, [lectures]);
+
+  // ── Module statistics ──
+  const assignmentsCompleted = useMemo(() => events.filter(e => e.type === 'Assignment' && e.status === 'Completed').length, [events]);
+  const assignmentsPending = useMemo(() => events.filter(e => e.type === 'Assignment' && e.status === 'Pending').length, [events]);
+  const upcomingExams = useMemo(() => events.filter(e => (e.type === 'Mid Semester Exam' || e.type === 'End Semester Exam') && e.status === 'Pending').length, [events]);
+  const extraClassesAttended = useMemo(() => extraClasses.filter(e => e.status === 'CONDUCTED' && e.attendanceStatus === 'PRESENT').length, [extraClasses]);
+  const creditsEarned = useMemo(() => attendanceCredits.reduce((sum, c) => sum + c.credits, 0), [attendanceCredits]);
+  const totalHolidayDays = useMemo(() => holidays.filter(h => h.type === 'GLOBAL' || h.type === 'SINGLE_DAY').length, [holidays]);
+  const subjectHolidaysCount = useMemo(() => holidays.filter(h => h.type === 'SUBJECT').length, [holidays]);
+
   const hasSubjects = (onboarding.subjects?.length ?? 0) > 0 || (onboarding.timetableEntries?.length ?? 0) > 0 || subjectSummaries.length > 0;
 
+  // Render Skeleton layout until client mount completes
   if (!mounted || !isHydrated) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 max-w-md mx-auto">
-        <div className="h-10 w-10 rounded-full border-2 border-border border-t-primary animate-spin" />
-        <p className="text-xs text-muted-foreground font-semibold">Loading Analytics Data...</p>
+      <div className="space-y-6 text-foreground max-w-7xl mx-auto p-1 animate-pulse">
+        <div className="h-8 w-48 bg-secondary rounded-lg" />
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="h-24 bg-card border border-border rounded-xl" />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 h-64 bg-card border border-border rounded-xl" />
+          <div className="h-64 bg-card border border-border rounded-xl" />
+        </div>
       </div>
     );
   }
@@ -130,59 +200,6 @@ export default function AnalyticsPage() {
     );
   }
 
-  // ── Subject bar chart data ──
-  const subjectBarData = subjectSummaries.map(({ subject, overallStats: stats }, idx) => ({
-    name: subject.code || subject.name.slice(0, 6),
-    percentage: stats.attendancePercentage ?? 0,
-    color: getSubjectColor(subject, idx),
-  }));
-
-  // ── Theory vs Lab pie data — distinguish by component type ──
-  const theoryLectures = lectures.filter((l) => l.componentType !== 'LAB' && l.status === 'CONDUCTED');
-  const labLectures = lectures.filter((l) => l.componentType === 'LAB' && l.status === 'CONDUCTED');
-
-  let theoryAtt = 0;
-  let theoryTotal = 0;
-  for (const l of theoryLectures) {
-    const mult = getLectureMultiplier(l.componentType, l.startTime, l.endTime);
-    theoryTotal += mult;
-    if (l.attendance === 'PRESENT') theoryAtt += mult;
-  }
-
-  let labAtt = 0;
-  let labTotal = 0;
-  for (const l of labLectures) {
-    const mult = getLectureMultiplier(l.componentType, l.startTime, l.endTime);
-    labTotal += mult;
-    if (l.attendance === 'PRESENT') labAtt += mult;
-  }
-
-  const tvlData = [
-    {
-      name: 'Theory',
-      value: theoryAtt,
-      total: theoryTotal,
-      pct: theoryTotal > 0 ? Math.round((theoryAtt / theoryTotal) * 100) : 0,
-      fill: '#475569',
-    },
-    {
-      name: 'Lab',
-      value: labAtt,
-      total: labTotal,
-      pct: labTotal > 0 ? Math.round((labAtt / labTotal) * 100) : 0,
-      fill: '#94a3b8',
-    },
-  ].filter((d) => d.total > 0);
-
-  // ── Calculations for modules ──
-  const assignmentsCompleted = events.filter(e => e.type === 'Assignment' && e.status === 'Completed').length;
-  const assignmentsPending = events.filter(e => e.type === 'Assignment' && e.status === 'Pending').length;
-  const upcomingExams = events.filter(e => (e.type === 'Mid Semester Exam' || e.type === 'End Semester Exam') && e.status === 'Pending').length;
-  const extraClassesAttended = extraClasses.filter(e => e.status === 'CONDUCTED' && e.attendanceStatus === 'PRESENT').length;
-  const creditsEarned = attendanceCredits.reduce((sum, c) => sum + c.credits, 0);
-  const totalHolidayDays = holidays.filter(h => h.type === 'GLOBAL' || h.type === 'SINGLE_DAY').length;
-  const subjectHolidaysCount = holidays.filter(h => h.type === 'SUBJECT').length;
-
   return (
     <div className="space-y-6 text-foreground max-w-7xl mx-auto p-1">
       {isBeforeStartDate && (
@@ -191,6 +208,7 @@ export default function AnalyticsPage() {
           <span>Semester start date is set in the future ({onboarding.startDate}). Displaying projected schedule metrics and target analysis.</span>
         </div>
       )}
+
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
@@ -243,17 +261,23 @@ export default function AnalyticsPage() {
             <p className="text-xs text-muted-foreground">Comparative trajectory of weekly vs cumulative averages</p>
           </div>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={weeklyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
-                <XAxis dataKey="week" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
-                <YAxis domain={[0, 100]} stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Line type="monotone" dataKey="weekly" name="Weekly Avg" stroke="#94a3b8" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="cumulative" name="Cumulative Avg" stroke="var(--foreground)" strokeWidth={3} dot={{ r: 4 }} />
-              </LineChart>
-            </ResponsiveContainer>
+            {weeklyData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground border border-dashed border-border rounded-lg">
+                No weekly trend recorded yet.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={weeklyData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+                  <XAxis dataKey="week" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
+                  <YAxis domain={[0, 100]} stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Line type="monotone" dataKey="weekly" name="Weekly Avg" stroke="#94a3b8" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="cumulative" name="Cumulative Avg" stroke="var(--foreground)" strokeWidth={3} dot={{ r: 4 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
@@ -265,7 +289,7 @@ export default function AnalyticsPage() {
           </div>
           
           {tvlData.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
+            <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground border border-dashed border-border rounded-lg">
               No component data recorded yet.
             </div>
           ) : (
@@ -293,7 +317,7 @@ export default function AnalyticsPage() {
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                   <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Ratio</span>
                   <span className="text-lg font-bold text-foreground">
-                    {Math.round((tvlData[0]?.value / ((tvlData[0]?.value + tvlData[1]?.value) || 1)) * 100)}%
+                    {Math.round((tvlData[0]?.value / ((tvlData[0]?.value + (tvlData[1]?.value || 0)) || 1)) * 100)}%
                   </span>
                 </div>
               </div>
@@ -327,19 +351,25 @@ export default function AnalyticsPage() {
             <p className="text-xs text-muted-foreground">Compare attendance standings against targets</p>
           </div>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={subjectBarData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
-                <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
-                <YAxis domain={[0, 100]} stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
-                <Bar dataKey="percentage" name="Attendance %" radius={[4, 4, 0, 0]}>
-                  {subjectBarData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {subjectBarData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground border border-dashed border-border rounded-lg">
+                No subjects registered yet.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={subjectBarData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+                  <XAxis dataKey="name" stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
+                  <YAxis domain={[0, 100]} stroke="var(--muted-foreground)" fontSize={10} tickLine={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <Bar dataKey="percentage" name="Attendance %" radius={[4, 4, 0, 0]}>
+                    {subjectBarData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
