@@ -299,7 +299,7 @@ export function detectConsecutiveBlocks(
       const upperKey = rawText.toUpperCase();
       
       // Multi-tier lookup: Exact key -> Prefix key (e.g. G1 -> G) -> Subject Name match
-      let mapped = dictionary.lookupMap[upperKey];
+      let mapped: SlotCatalogEntry | undefined = dictionary.lookupMap[upperKey];
       if (!mapped) {
         const prefixKey = upperKey.replace(/\d+$/, '');
         mapped = dictionary.lookupMap[prefixKey];
