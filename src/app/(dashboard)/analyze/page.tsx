@@ -55,6 +55,8 @@ type TimetableEntryItem = {
   endTime: string;
 };
 
+const COLOR_PALETTE = ['#6366f1', '#06b6d4', '#f43f5e', '#10b981', '#8b5cf6', '#3b82f6', '#f59e0b', '#ec4899'];
+
 function DebugPanel({
   detectedGrid,
   slotDictionary,
@@ -464,6 +466,7 @@ export default function AnalyzePDFPage() {
             <p className="text-sm font-semibold text-foreground">Upload Timetable PDF</p>
             <p className="text-xs text-muted-foreground">Max size: 10MB</p>
           </div>
+        )}
       </div>
 
       {/* Parser Debug Mode (Intermediate Representations) */}
