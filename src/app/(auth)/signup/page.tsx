@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
+import { getURL } from '@/shared/lib/url-resolver';
 import { toast, Toaster } from 'sonner';
 import { Loader2, GraduationCap } from 'lucide-react';
 
@@ -25,10 +26,13 @@ export default function SignupPage() {
 
     setIsLoading(true);
     try {
+      const redirectUrl = getURL('/auth/callback');
+      console.log('[Acadex Auth] Initiating signup with emailRedirectTo:', redirectUrl);
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          emailRedirectTo: redirectUrl,
           data: {
             full_name: name,
           },
