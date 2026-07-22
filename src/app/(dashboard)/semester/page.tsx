@@ -12,7 +12,7 @@ import {
 
 export default function SemesterPage() {
   const { 
-    onboarding, lectures,
+    onboarding, subjects, lectures,
     holidays, setHolidays,
     extraClasses, setExtraClasses,
     rescheduledClasses, setRescheduledClasses,
@@ -21,8 +21,6 @@ export default function SemesterPage() {
   } = useHydratedStore();
 
   const [activeTab, setActiveTab] = useState<'HOLIDAYS' | 'EXTRA_CLASSES' | 'RESCHEDULE' | 'CREDITS'>('HOLIDAYS');
-
-  const subjects = onboarding.subjects || [];
 
   // Form states - Holiday
   const [hTitle, setHTitle] = useState('');

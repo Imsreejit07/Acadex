@@ -32,7 +32,7 @@ function fmtShortDate(dateStr: string): string {
 }
 
 export default function AcademicEventsPage() {
-  const { onboarding, events, setEvents, isFullyHydrated } = useHydratedStore();
+  const { onboarding, subjects, events, setEvents, isFullyHydrated } = useHydratedStore();
   const [filterType, setFilterType] = useState<string>('ALL');
   const [filterPriority, setFilterPriority] = useState<string>('ALL');
   
@@ -49,8 +49,6 @@ export default function AcademicEventsPage() {
   const [examEndTime, setExamEndTime] = useState('13:00');
   const [priority, setPriority] = useState<AcademicEvent['priority']>('Medium');
   const [notes, setNotes] = useState('');
-
-  const subjects = onboarding.subjects || [];
 
   const handleAddEvent = (e: React.FormEvent) => {
     e.preventDefault();

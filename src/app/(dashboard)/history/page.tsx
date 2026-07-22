@@ -24,7 +24,7 @@ function fmtTime(time: string): string {
 }
 
 export default function HistoryPage() {
-  const { lectures, onboarding, deleteLecture, setLectureStatus, extraClasses, setExtraClasses, isFullyHydrated } = useHydratedStore();
+  const { lectures, onboarding, subjects, deleteLecture, setLectureStatus, extraClasses, setExtraClasses, isFullyHydrated } = useHydratedStore();
   const [search, setSearch] = useState('');
   const [filterSubject, setFilterSubject] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -38,8 +38,6 @@ export default function HistoryPage() {
   const [customEnd, setCustomEnd] = useState('10:00');
   const [customStatus, setCustomStatus] = useState<'CONDUCTED' | 'CANCELLED' | 'HOLIDAY'>('CONDUCTED');
   const [customAttendance, setCustomAttendance] = useState<'PRESENT' | 'ABSENT' | 'MEDICAL_LEAVE' | 'DUTY_LEAVE'>('PRESENT');
-
-  const subjects = onboarding.subjects || [];
 
   // Filtered lectures list (excluding scheduled future classes)
   const conductedLectures = useMemo(() => {

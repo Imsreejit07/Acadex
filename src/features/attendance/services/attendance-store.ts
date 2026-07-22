@@ -540,6 +540,7 @@ export function useAttendanceStore() {
   return {
     isHydrated,
     onboarding: parsed.onboarding,
+    subjects: rawSubjects,
     overrides: parsed.overrides,
     events: parsed.events,
     holidays: parsed.holidays,
