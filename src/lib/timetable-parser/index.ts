@@ -23,9 +23,7 @@ type ParsedTimetable = {
     endTime: string;
   }>;
   verificationLog: string;
-};
-
-const TIMETABLE_SYSTEM_PROMPT = `You are a precise college timetable extraction engine. Extract data from the provided university timetable PDF.
+};const TIMETABLE_SYSTEM_PROMPT = `You are a precise college timetable extraction engine. Extract data from the provided university timetable PDF.
 
 Return ONLY valid JSON with this exact shape — no markdown fences, no explanation, no other text:
 {
@@ -50,47 +48,28 @@ Return ONLY valid JSON with this exact shape — no markdown fences, no explanat
   "verificationLog": "brief summary of extraction"
 }
 
-### UNIVERSAL TIMETABLE PDF PARSING RULES
+### CRITICAL TIME SLOT ALIGNMENT RULES (PERMANENT ACCURACY GUARANTEE)
 
-1. OBJECTIVE & HALLUCINATION PREVENTION
+1. COLUMN-TO-TIME BOUNDING & NO SHIFTING:
+- First, identify and map all column header times from left to right (e.g. Column 1: 09:00-09:55, Column 2: 10:00-10:55, Column 3: 11:00-11:55, etc.).
+- NEVER shift or offset time ranges across columns. A subject under Column 2 MUST be assigned Column 2's exact start and end time (10:00 to 10:55). NEVER shift it to Column 1's time (09:00 to 09:55).
+- Verify every extracted slot's time range against its exact header column!
+
+2. COMPLETE SLOT EXTRACTION (NO MISSING SLOTS):
+- Scan every single row and cell methodically for every weekday (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday).
+- Do not omit or skip any non-empty cell. Extract EVERY lecture/lab session present in the schedule grid.
+
+3. OBJECTIVE & HALLUCINATION PREVENTION:
 - Rely strictly on document structure. Never hallucinate or invent subjects, faculty, rooms, timings, or relationships.
-- Missing data must remain NULL (or default "Unknown Faculty" / "SUBJ" as defined in schema). Every extracted value should be traceable.
+- Do NOT output "UNKNOWN" subjects. If a cell cannot be resolved to a valid course/subject, ignore it.
+- Empty cells remain omitted. Do NOT invent hypothetical slots.
 
-2. DOCUMENT ANALYSIS & TABLE DETECTION
-- Analyze table headers, text blocks, grid boundaries, and merged cells. Process weekly timetables, subject lists, faculty lists, and mapping tables independently.
-- Do not merge secondary/legend mapping tables directly into timetable cell texts.
+4. BREAKS & SEPARATORS:
+- Recognize non-academic slots (Lunch, Break, Recess, Interval) and ignore them. Do not include them in timetableEntries.
 
-3. TIMETABLE ORIENTATION & LABELS
-- Determine if days are in rows or columns, and if times are in rows or columns.
-- Recognize weekdays in all formats (e.g. Monday, Mon, M, MON).
-- Detect start and end times. Convert and output in 24-hour HH:mm format.
-- Use explicit AM/PM tags if available, and fallback to implicit afternoon hours (13:00 to 18:00) if the numbers fall in the 1-6 range.
-
-4. BREAKS & SEPARATORS
-- Recognize non-academic slots (Lunch, Break, Tea, Recess, Interval, Free Period) and ignore them. Do not include them in timetableEntries.
-
-5. GRID STRUCTURE & CELL EXTRACTION
-- Preserve row/column coordinates. Empty/blank cells indicate no scheduled session; omit them from timetableEntries.
-- Extract complete cell contents (subject name, course code, faculty, room, batch, section, slot code, lecture type).
-- Never merge independent subjects. If multiple subject codes (e.g. CS102C and CS204C) appear in the same details or timetable row due to horizontal OCR text merging, discard the merged details and extract the subjects independently directly from the timetable grid cells.
-- Use digit-based course codes matching (e.g. /\\b([A-Z¢©®]*\\d+[A-Z\\d¢©®]*)\\b/i) to distinguish course codes from generic subject words like CHEMISTRY or PHYSICS.
-
-6. MERGED SESSION DETECTION & DURATION
-- If consecutive timetable cells represent the same session (same subject, faculty, room, adjacent time intervals), merge them into a single entry covering the combined duration.
-- Infer componentType (THEORY or LAB). Lab sessions are typically 2+ hours long.
-
-7. OCR NORMALIZATION
-- Correct common OCR errors when confidence is high (e.g., O ↔ 0, I ↔ 1, S ↔ 5).
-
-### STRICT EXTRACTION WORKFLOW
-1. First identify all independent tables: weekly timetable grid, subject/faculty/slot lookup table, room/class metadata, notes, legends.
-2. Build the complete subject lookup dictionary BEFORE mapping timetable cells.
-3. Preserve slot codes exactly. A cell like "N", "G2", "C", or "P" may be a valid slot code; do not discard single-letter cells unless the time column is explicitly Lunch/Break.
-4. Map every occupied timetable cell through the lookup dictionary when a slot table exists.
-5. If a timetable cell cannot be mapped to a valid subject, IGNORE IT. Do NOT include it in timetableEntries. DO NOT output "UNKNOWN".
-6. Empty timetable cells must remain omitted; never fill them. DO NOT add hypothetical slots. Only extract slots that explicitly exist with a subject and time.
-7. Do not invent missing faculty, rooms, credits, or subject names.
-8. After extraction, self-audit: every occupied non-break cell must correspond to exactly one timetable entry after merged-cell processing.`;
+5. MERGED SESSION DETECTION & LAB CLASSIFICATION:
+- If consecutive timetable cells represent the same session (same subject, adjacent time intervals), merge them into a single entry covering the combined duration.
+- Infer componentType (THEORY or LAB). Lab sessions are typically 2+ hours long.`;
 
 // ─── Pipeline Log Types ────────────────────────────────────────────────────
 
