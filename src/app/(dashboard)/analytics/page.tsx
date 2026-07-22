@@ -61,7 +61,7 @@ export default function AnalyticsPage() {
 
   // ── Weekly chart data ──
   const weeklyData = useMemo(() => {
-    if (!onboarding.startDate || lectures.length === 0) return [];
+    if (lectures.length === 0) return [];
 
     const sorted = [...lectures].sort((a, b) => a.date.localeCompare(b.date));
     const weeksMap: Record<string, typeof lectures> = {};

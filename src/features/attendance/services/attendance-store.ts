@@ -463,7 +463,21 @@ export function useAttendanceStore() {
 
   const isBeforeStartDate = Boolean(parsed.onboarding.startDate) && dateOnly(formatDate(new Date())) < dateOnly(parsed.onboarding.startDate || '');
 
-  const bySubject = (parsed.onboarding.subjects || []).map(subject => {
+  const rawSubjects = (parsed.onboarding.subjects && parsed.onboarding.subjects.length > 0)
+    ? parsed.onboarding.subjects
+    : Array.from(new Set((parsed.onboarding.timetableEntries || []).map(e => e.subjectName).filter(Boolean))).map((name, idx) => ({
+        id: `auto_${idx}_${name}`,
+        name,
+        code: name.length <= 6 ? name.toUpperCase() : name.slice(0, 6).toUpperCase(),
+        faculty: '',
+        credits: 3,
+        color: '#0ea5e9',
+        hasLab: (parsed.onboarding.timetableEntries || []).some(e => e.subjectName === name && e.componentType === 'LAB'),
+        theoryTarget: 75,
+        labTarget: 75,
+      }));
+
+  const bySubject = rawSubjects.map(subject => {
     const subjectLectures = lectures.filter(l => l.subjectName === subject.name);
     const theoryLectures = subjectLectures.filter(l => l.componentType !== 'LAB');
     const labLectures = subjectLectures.filter(l => l.componentType === 'LAB');
