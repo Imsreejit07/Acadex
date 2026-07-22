@@ -94,6 +94,7 @@ export default function DashboardPage() {
     isBeforeStartDate,
     setLectureStatus,
     events,
+    isHydrated,
   } = useAttendanceStore();
 
   const now = new Date();
@@ -218,6 +219,15 @@ export default function DashboardPage() {
   );
 
   const hasSubjectsOrTimetable = (onboarding.subjects?.length ?? 0) > 0 || (onboarding.timetableEntries?.length ?? 0) > 0 || subjectSummaries.length > 0;
+
+  if (!isHydrated) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 max-w-md mx-auto">
+        <div className="h-10 w-10 rounded-full border-2 border-border border-t-primary animate-spin" />
+        <p className="text-xs text-muted-foreground font-semibold">Restoring Academic Data from Supabase...</p>
+      </div>
+    );
+  }
 
   if (!hasSubjectsOrTimetable) {
     return (

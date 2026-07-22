@@ -4,7 +4,7 @@ import { useState, useRef } from 'react';
 import { 
   FileText, Upload, RefreshCw, ChevronDown, ChevronUp, 
   AlertTriangle, CheckCircle2, XCircle, SkipForward, Clock, Sparkles, Check, FileCheck,
-  Settings, Layers, Calendar, Edit3, Plus, Trash2
+  Settings, Layers, Calendar, Edit3, Plus, Trash2, Key
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { useAttendanceStore } from '@/features/attendance/services/attendance-store';
@@ -480,6 +480,63 @@ export default function AnalyzePDFPage() {
         <p className="text-sm text-muted-foreground mt-0.5">
           Scan and parse university schedules dynamically into your Acadex calendar.
         </p>
+      </div>
+
+      {/* Inline BYOK API Key banner / card */}
+      <div className="p-4 rounded-xl bg-card border border-border space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Key className="h-4 w-4 text-primary" />
+            <h3 className="text-xs font-bold text-foreground">Gemini API Key Configuration</h3>
+          </div>
+          <span className="text-[10px] text-muted-foreground">
+            {typeof window !== 'undefined' && localStorage.getItem('custom_gemini_api_key')
+              ? '✓ Custom Key Active'
+              : 'Using App Default Key'}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="password"
+            placeholder="Paste your Gemini API Key here (AIzaSy...)"
+            value={typeof window !== 'undefined' ? (localStorage.getItem('custom_gemini_api_key') || '') : ''}
+            onChange={(e) => {
+              const val = e.target.value.trim();
+              if (val) {
+                localStorage.setItem('custom_gemini_api_key', val);
+              } else {
+                localStorage.removeItem('custom_gemini_api_key');
+              }
+              window.dispatchEvent(new Event('attendance-tool-store-change'));
+            }}
+            className="flex-1 min-w-[240px] px-3 py-1.5 text-xs rounded-lg bg-secondary border border-border text-foreground font-mono focus:outline-none focus:border-primary"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              const key = localStorage.getItem('custom_gemini_api_key');
+              if (!key) {
+                toast.error('Please enter an API key first.');
+                return;
+              }
+              toast.info('Validating key...');
+              const res = await fetch('/api/validate-key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey: key }),
+              });
+              const data = await res.json();
+              if (res.ok && data.success) {
+                toast.success('Gemini API key is valid!');
+              } else {
+                toast.error(data.error || 'Key validation failed');
+              }
+            }}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-secondary hover:bg-muted border border-border text-foreground transition-colors"
+          >
+            Test Key
+          </button>
+        </div>
       </div>
 
       {/* Drop zone */}

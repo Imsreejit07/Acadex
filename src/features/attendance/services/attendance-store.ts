@@ -192,18 +192,20 @@ export function savePreference(key: string, value: string) {
 
 // ─── Supabase cloud load ─────────────────────────────────────────────────────
 let cloudInitialized = false;
+let cloudHydrated = false;
 
-export async function initializeSqliteState() {
-  if (typeof window === 'undefined' || cloudInitialized) return;
+export async function initializeSqliteState(force = false) {
+  if (typeof window === 'undefined') return;
+  if (cloudInitialized && !force) return;
   cloudInitialized = true;
 
   try {
     const { loadStateFromSupabase } = await import('@/shared/lib/supabase-service');
-    const loaded = await loadStateFromSupabase();
-    if (loaded) {
-      window.dispatchEvent(new Event(STORE_EVENT));
-    }
+    await loadStateFromSupabase();
+    cloudHydrated = true;
+    window.dispatchEvent(new Event(STORE_EVENT));
   } catch (err) {
+    cloudHydrated = true;
     console.warn('Could not load from Supabase (user may not be logged in):', err);
   }
 }
@@ -513,7 +515,10 @@ export function useAttendanceStore() {
       : null;
   }
 
+  const isHydrated = cloudHydrated || (typeof window !== 'undefined' && Boolean(localStorage.getItem('onboarding_data')));
+
   return {
+    isHydrated,
     onboarding: parsed.onboarding,
     overrides: parsed.overrides,
     events: parsed.events,
