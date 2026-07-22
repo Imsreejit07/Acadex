@@ -177,24 +177,14 @@ export default function AnalyticsPage() {
   const totalHolidayDays = holidays.filter(h => h.type === 'GLOBAL' || h.type === 'SINGLE_DAY').length;
   const subjectHolidaysCount = holidays.filter(h => h.type === 'SUBJECT').length;
 
-  if (isBeforeStartDate) {
-    return (
-      <div className="space-y-6 text-foreground max-w-md mx-auto py-20 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-secondary border border-border flex items-center justify-center text-muted-foreground mx-auto">
-          <CalendarDays className="h-8 w-8" />
-        </div>
-        <div>
-          <h2 className="text-lg font-bold text-foreground">No Analytics Available</h2>
-          <p className="text-xs text-muted-foreground mt-2">
-            The semester has not started yet. Once your start date passes and classes are conducted, analytics will appear.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 text-foreground max-w-7xl mx-auto p-1">
+      {isBeforeStartDate && (
+        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-300 text-xs flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 shrink-0" />
+          <span>Semester start date is set in the future ({onboarding.startDate}). Displaying projected schedule metrics and target analysis.</span>
+        </div>
+      )}
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">

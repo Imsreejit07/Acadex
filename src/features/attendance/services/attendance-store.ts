@@ -304,7 +304,7 @@ function buildLectureId(entry: TimetableEntry, date: string, resolvedType: strin
   ].join('|');
 }
 
-function getLectures(
+export function getLectures(
   onboarding: OnboardingData,
   overrides: AttendanceOverride[],
   holidays: Holiday[],
@@ -312,11 +312,17 @@ function getLectures(
   rescheduledClasses: RescheduledClass[],
   today = new Date()
 ): LectureInstance[] {
-  if (!onboarding.startDate) return [];
+  const defaultPastStart = formatDate(new Date(today.getTime() - 30 * 86400000));
+  const startDateStr = onboarding.startDate || defaultPastStart;
 
-  const start = dateOnly(onboarding.startDate);
-  const end = dateOnly(formatDate(today));
-  if (end < start) return [];
+  let start = dateOnly(startDateStr);
+  let end = dateOnly(formatDate(today));
+  if (end < start) {
+    // If start date is in the future, project 14 days forward from start date
+    const futureEnd = new Date(start);
+    futureEnd.setDate(futureEnd.getDate() + 14);
+    end = dateOnly(formatDate(futureEnd));
+  }
 
   const todayDateStr = formatDate(today);
   const overrideMap = new Map(overrides.map(override => [override.lectureId, override]));
