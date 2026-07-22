@@ -4,7 +4,7 @@ import { useState, useRef } from 'react';
 import { 
   FileText, Upload, RefreshCw, ChevronDown, ChevronUp, 
   AlertTriangle, CheckCircle2, XCircle, SkipForward, Clock, Sparkles, Check, FileCheck,
-  Settings, Layers, Calendar, Edit3
+  Settings, Layers, Calendar, Edit3, Plus, Trash2
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { useAttendanceStore } from '@/features/attendance/services/attendance-store';
@@ -318,6 +318,55 @@ export default function AnalyzePDFPage() {
     }));
   };
 
+  const handleAddSubject = () => {
+    setSubjects(prev => [
+      ...prev,
+      {
+        id: Math.random().toString(36).substr(2, 9),
+        name: 'New Subject',
+        code: '',
+        faculty: '',
+        credits: null,
+        color: COLOR_PALETTE[prev.length % COLOR_PALETTE.length],
+        hasLab: false,
+        theoryTarget: 75,
+        labTarget: 75,
+      }
+    ]);
+  };
+
+  const handleDeleteSubject = (id: string) => {
+    setSubjects(prev => prev.filter(s => s.id !== id));
+  };
+
+  const handleAddEntry = () => {
+    setEntries(prev => [
+      ...prev,
+      {
+        id: Math.random().toString(36).substr(2, 9),
+        day: 'MONDAY',
+        subjectName: subjects[0]?.name || '',
+        startTime: '09:00',
+        endTime: '10:00',
+      }
+    ]);
+  };
+
+  const handleDeleteEntry = (id: string) => {
+    setEntries(prev => prev.filter(e => e.id !== id));
+    setManualOverrides(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const handleEntryFieldChange = (id: string, field: keyof TimetableEntryItem, value: string) => {
+    setEntries(prev =>
+      prev.map(e => (e.id === id ? { ...e, [field]: value } : e))
+    );
+  };
+
   const handleImport = () => {
     if (subjects.length === 0) return;
 
@@ -462,7 +511,17 @@ export default function AnalyzePDFPage() {
                         className="flex-1 bg-card border border-border rounded-lg px-2.5 py-1 text-sm font-semibold text-foreground focus:outline-none focus:border-foreground transition-colors"
                         placeholder="Subject Name"
                       />
-                      <div className="w-6 h-6 rounded-full shrink-0 border border-border" style={{ backgroundColor: s.color }} />
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full shrink-0 border border-border" style={{ backgroundColor: s.color }} />
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSubject(s.id)}
+                          className="p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors"
+                          title="Delete Subject"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -581,6 +640,14 @@ export default function AnalyzePDFPage() {
                     </div>
                   </div>
                 ))}
+                
+                <button
+                  onClick={handleAddSubject}
+                  className="w-full py-3 flex items-center justify-center gap-2 border-2 border-dashed border-border rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-secondary/50 transition-all"
+                >
+                  <Plus size={16} />
+                  Add Subject
+                </button>
               </div>
             </div>
 
@@ -597,12 +664,54 @@ export default function AnalyzePDFPage() {
                   const isOverridden = !!manualOverrides[entry.id];
                   
                   return (
-                    <div key={entry.id} className="p-3 rounded-lg bg-secondary border border-border flex items-center justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-foreground truncate">{entry.subjectName}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {entry.day.charAt(0) + entry.day.slice(1).toLowerCase()} &middot; {entry.startTime} - {entry.endTime}
-                        </p>
+                    <div key={entry.id} className="p-3 rounded-lg bg-secondary border border-border flex flex-col gap-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <select
+                          value={entry.subjectName}
+                          onChange={(e) => handleEntryFieldChange(entry.id, 'subjectName', e.target.value)}
+                          className="flex-1 bg-card border border-border rounded px-2 py-1 text-sm font-semibold text-foreground focus:outline-none focus:border-foreground truncate"
+                        >
+                          <option value="">Select a subject...</option>
+                          {subjects.map(s => (
+                            <option key={s.id} value={s.name}>{s.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteEntry(entry.id)}
+                          className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded transition-colors shrink-0"
+                          title="Delete Slot"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={entry.day}
+                          onChange={(e) => handleEntryFieldChange(entry.id, 'day', e.target.value)}
+                          className="bg-card border border-border rounded px-2 py-1 text-xs text-foreground focus:outline-none"
+                        >
+                          {['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'].map(d => (
+                            <option key={d} value={d}>{d.charAt(0) + d.slice(1).toLowerCase()}</option>
+                          ))}
+                        </select>
+                        
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <input
+                            type="time"
+                            value={entry.startTime}
+                            onChange={(e) => handleEntryFieldChange(entry.id, 'startTime', e.target.value)}
+                            className="bg-card border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
+                          />
+                          <span>-</span>
+                          <input
+                            type="time"
+                            value={entry.endTime}
+                            onChange={(e) => handleEntryFieldChange(entry.id, 'endTime', e.target.value)}
+                            className="bg-card border border-border rounded px-1.5 py-1 text-xs text-foreground focus:outline-none"
+                          />
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
@@ -635,6 +744,14 @@ export default function AnalyzePDFPage() {
                     </div>
                   );
                 })}
+
+                <button
+                  onClick={handleAddEntry}
+                  className="w-full py-3 flex items-center justify-center gap-2 border-2 border-dashed border-border rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-secondary/50 transition-all"
+                >
+                  <Plus size={16} />
+                  Add Slot
+                </button>
               </div>
             </div>
           </div>
