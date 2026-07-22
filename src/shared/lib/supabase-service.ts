@@ -179,41 +179,18 @@ export async function loadStateFromSupabase(): Promise<boolean> {
       startDate: semester.start_date || '',
     };
 
-    // Load subjects for this semester
-    const { data: subjects, error: subjectsError } = await supabase
-      .from('subjects')
-      .select('*')
-      .eq('semester_id', semester.id);
-
-    if (!subjectsError && subjects) {
-      onboarding.subjects = subjects.map((s: SupabaseSubject) => ({
-        id: s.id,
-        name: s.name,
-        code: s.code || '',
-        faculty: s.faculty || '',
-        credits: s.credits ?? null,
-        color: s.color || '#3B82F6',
-        hasLab: false,
-        theoryTarget: 75,
-        labTarget: 75,
-      }));
-    }
-
-    // Load auxiliary meta from description field
+    // Load auxiliary meta from description field FIRST (complete JSON backup)
     const meta = await loadMetaData(semester.id);
     if (meta) {
       if (meta.subjects && Array.isArray(meta.subjects) && meta.subjects.length > 0) {
-        if (!onboarding.subjects || onboarding.subjects.length === 0) {
-          onboarding.subjects = meta.subjects as OnboardingData['subjects'];
-        }
+        onboarding.subjects = meta.subjects as OnboardingData['subjects'];
       }
-      if (meta.timetableEntries) {
+      if (meta.timetableEntries && Array.isArray(meta.timetableEntries)) {
         onboarding.timetableEntries = meta.timetableEntries as OnboardingData['timetableEntries'];
       }
-      if (meta.subjectExtras) {
-        // Merge hasLab, targets etc. into subjects
+      if (meta.subjectExtras && onboarding.subjects) {
         const extras = meta.subjectExtras as Record<string, { hasLab?: boolean; theoryTarget?: number; labTarget?: number }>;
-        onboarding.subjects = (onboarding.subjects || []).map(s => ({
+        onboarding.subjects = onboarding.subjects.map(s => ({
           ...s,
           ...(extras[s.name] || {}),
         }));
@@ -221,7 +198,7 @@ export async function loadStateFromSupabase(): Promise<boolean> {
       if (meta.onboardingCompletedAt) {
         onboarding.onboardingCompletedAt = meta.onboardingCompletedAt as string;
       }
-      if (meta.midSemesterBackfilled) {
+      if (meta.midSemesterBackfilled !== undefined) {
         onboarding.midSemesterBackfilled = meta.midSemesterBackfilled as boolean;
       }
       if (meta.userName) {
@@ -236,6 +213,28 @@ export async function loadStateFromSupabase(): Promise<boolean> {
       if (meta.extraClasses) localStorage.setItem('extra_classes', JSON.stringify(meta.extraClasses));
       if (meta.rescheduledClasses) localStorage.setItem('rescheduled_classes', JSON.stringify(meta.rescheduledClasses));
       if (meta.attendanceCredits) localStorage.setItem('attendance_credits', JSON.stringify(meta.attendanceCredits));
+    }
+
+    // Fallback: If meta.subjects was missing or empty, load from relational `subjects` table
+    if (!onboarding.subjects || onboarding.subjects.length === 0) {
+      const { data: subjects, error: subjectsError } = await supabase
+        .from('subjects')
+        .select('*')
+        .eq('semester_id', semester.id);
+
+      if (!subjectsError && subjects && subjects.length > 0) {
+        onboarding.subjects = subjects.map((s: SupabaseSubject) => ({
+          id: s.id,
+          name: s.name,
+          code: s.code || '',
+          faculty: s.faculty || '',
+          credits: s.credits ?? null,
+          color: s.color || '#3B82F6',
+          hasLab: false,
+          theoryTarget: 75,
+          labTarget: 75,
+        }));
+      }
     }
 
     localStorage.setItem('onboarding_data', JSON.stringify(onboarding));
@@ -263,10 +262,16 @@ export async function saveStateToSupabase(state: {
     const user = await getCurrentUser();
     if (!user) return;
 
-    // PROTECTION: Do not write empty default state to database if state has no subjects or timetable entries
-    if (!state.onboarding?.semesterName && (!state.onboarding?.subjects || state.onboarding.subjects.length === 0)) {
-      console.warn('[Acadex Persistence] Safeguard triggered: Aborting sync of empty onboarding state to Supabase.');
-      return;
+    // PROTECTION: Do not write empty state to database if user already has saved subjects
+    if (!state.onboarding?.subjects || state.onboarding.subjects.length === 0) {
+      const semesterId = localStorage.getItem('supabase_semester_id');
+      if (semesterId) {
+        const existingMeta = await loadMetaData(semesterId);
+        if (existingMeta?.subjects && Array.isArray(existingMeta.subjects) && existingMeta.subjects.length > 0) {
+          console.warn('[Acadex Persistence] Safeguard triggered: Aborting sync of empty onboarding state over existing Supabase database records.');
+          return;
+        }
+      }
     }
 
     let semesterId = localStorage.getItem('supabase_semester_id');
