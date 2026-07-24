@@ -7,8 +7,9 @@ import {
   Settings, Layers, Calendar, Edit3, Plus, Trash2, Key
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
-import { useAttendanceStore } from '@/features/attendance/services/attendance-store';
+import { useHydratedStore } from '@/features/attendance/services/attendance-store';
 import { rebuildTimetableFromGrid } from '@/lib/timetable-parser';
+import EffectiveDateModal from '@/features/timetable/components/EffectiveDateModal';
 
 type PipelineStep = {
   step: string;
@@ -183,8 +184,10 @@ function DebugPanel({
 }
 
 export default function AnalyzePDFPage() {
-  const { onboarding, setOnboarding } = useAttendanceStore();
+  const { onboarding, setOnboarding, timetableVersions, applyNewTimetableVersion } = useHydratedStore();
   const [isUploading, setIsUploading] = useState(false);
+  const [showEffectiveModal, setShowEffectiveModal] = useState(false);
+  const [pendingResolvedTimetable, setPendingResolvedTimetable] = useState<any[]>([]);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   
   // Timetable setup states
@@ -422,50 +425,46 @@ export default function AnalyzePDFPage() {
       endTime: entry.endTime,
     }));
 
+    const updatedSubjects = subjects.map(s => ({
+      id: s.id,
+      name: s.name,
+      code: s.code,
+      faculty: s.faculty,
+      credits: s.credits,
+      color: s.color,
+      hasLab: s.hasLab,
+      theoryTarget: s.theoryTarget,
+      labTarget: s.labTarget,
+    }));
+
     const updatedOnboarding = {
       ...onboarding,
       semesterName: onboarding.semesterName || 'Semester 1',
       academicYear: onboarding.academicYear || '2026-2027',
       startDate: onboarding.startDate || new Date().toISOString().split('T')[0],
-      subjects: subjects.map(s => ({
-        id: s.id,
-        name: s.name,
-        code: s.code,
-        faculty: s.faculty,
-        credits: s.credits,
-        color: s.color,
-        hasLab: s.hasLab,
-        theoryTarget: s.theoryTarget,
-        labTarget: s.labTarget,
-      })),
-      timetableEntries: resolvedTimetable,
+      subjects: updatedSubjects,
       onboardingCompletedAt: onboarding.onboardingCompletedAt || new Date().toISOString().split('T')[0],
       midSemesterBackfilled: onboarding.midSemesterBackfilled ?? false,
     };
 
     setOnboarding(updatedOnboarding);
-    toast.success('Successfully imported timetable to your active semester!');
 
-    // Persist immediately to Supabase database
-    import('@/shared/lib/supabase-service').then(({ saveStateToSupabase }) => {
-      const overrides = JSON.parse(localStorage.getItem('attendance_overrides') || '[]');
-      const events = JSON.parse(localStorage.getItem('academic_events') || '[]');
-      const holidays = JSON.parse(localStorage.getItem('holidays_list') || '[]');
-      const extraClasses = JSON.parse(localStorage.getItem('extra_classes') || '[]');
-      const rescheduledClasses = JSON.parse(localStorage.getItem('rescheduled_classes') || '[]');
-      const attendanceCredits = JSON.parse(localStorage.getItem('attendance_credits') || '[]');
-      saveStateToSupabase({
-        onboarding: updatedOnboarding,
-        overrides,
-        events,
-        holidays,
-        extraClasses,
-        rescheduledClasses,
-        attendanceCredits,
-      }).then(() => {
-        console.log('[Acadex Analyze] Timetable import persisted directly to Supabase database.');
-      });
-    });
+    // If timetable versions exist, prompt for Effective Date to preserve historical logs
+    if (timetableVersions && timetableVersions.length > 0) {
+      setPendingResolvedTimetable(resolvedTimetable);
+      setShowEffectiveModal(true);
+      return;
+    }
+
+    // First timetable version — apply starting from start date
+    applyNewTimetableVersion(resolvedTimetable, updatedOnboarding.startDate);
+    toast.success('Successfully imported timetable to your active semester!');
+  };
+
+  const handleConfirmEffectiveDate = (effectiveFrom: string) => {
+    applyNewTimetableVersion(pendingResolvedTimetable, effectiveFrom);
+    setShowEffectiveModal(false);
+    toast.success(`Applied new timetable version starting from ${effectiveFrom}!`);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -943,6 +942,18 @@ export default function AnalyzePDFPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {showEffectiveModal && (
+        <EffectiveDateModal
+          currentVersions={timetableVersions}
+          newEntryCount={pendingResolvedTimetable.length}
+          onConfirm={handleConfirmEffectiveDate}
+          onCancel={() => {
+            setShowEffectiveModal(false);
+            setPendingResolvedTimetable([]);
+          }}
+        />
       )}
     </div>
   );

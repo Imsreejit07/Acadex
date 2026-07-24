@@ -1,10 +1,12 @@
 'use client';
 
-import { Plus, Pencil, Sparkles, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
+import { Plus, Pencil, Sparkles, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useHydratedStore } from '@/features/attendance/services/attendance-store';
 import { calculateNeedClasses } from '@/features/attendance/services/attendance-engine';
 import type { SubjectConfig } from '@/features/attendance/services/attendance-store';
+import ManualAttendanceModal from '@/features/subjects/components/ManualAttendanceModal';
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -28,8 +30,9 @@ function getSubjectColor(subject: SubjectConfig, index: number): string {
 // ─── Subjects Page ─────────────────────────────────────────────────────
 
 export default function SubjectsPage() {
-  const { onboarding, subjectSummaries, isFullyHydrated } = useHydratedStore();
+  const { onboarding, subjectSummaries, setSubjectManualAdjustment, isFullyHydrated } = useHydratedStore();
   const semesterName = onboarding.semesterName || 'Semester';
+  const [selectedSubjectForManual, setSelectedSubjectForManual] = useState<SubjectConfig | null>(null);
 
   if (!isFullyHydrated) {
     return (
@@ -107,12 +110,20 @@ export default function SubjectsPage() {
                       <p className="text-xs text-muted-foreground">{subject.code || 'SUBJ'}</p>
                     </div>
                   </div>
-                  <button
-                    className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-secondary"
-                    onClick={() => alert(`Edit ${subject.name} — wire up subject edit modal here.`)}
-                  >
-                    <Pencil size={14} />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {Boolean(subject.manualAttendedAdjustment || subject.manualTotalAdjustment) && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                        Manual Adj
+                      </span>
+                    )}
+                    <button
+                      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-secondary"
+                      onClick={() => setSelectedSubjectForManual(subject)}
+                      title="Manual Attendance Adjustment (Fallback System)"
+                    >
+                      <SlidersHorizontal size={14} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Card body */}
@@ -208,6 +219,22 @@ export default function SubjectsPage() {
             );
           })}
         </div>
+      )}
+
+      {selectedSubjectForManual && (
+        <ManualAttendanceModal
+          subject={selectedSubjectForManual}
+          currentAttended={
+            subjectSummaries.find(s => s.subject.id === selectedSubjectForManual.id)?.overallStats.present || 0
+          }
+          currentConducted={
+            subjectSummaries.find(s => s.subject.id === selectedSubjectForManual.id)?.overallStats.conducted || 0
+          }
+          onSave={(subjectId, attendedAdj, totalAdj) => {
+            setSubjectManualAdjustment(subjectId, attendedAdj, totalAdj);
+          }}
+          onClose={() => setSelectedSubjectForManual(null)}
+        />
       )}
     </div>
   );

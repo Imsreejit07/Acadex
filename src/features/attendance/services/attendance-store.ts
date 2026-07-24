@@ -93,6 +93,10 @@ export interface SubjectConfig {
   hasLab?: boolean;
   theoryTarget?: number;
   labTarget?: number;
+  /** Manual Attendance Fallback System: user-specified attended class delta/adjustment */
+  manualAttendedAdjustment?: number;
+  /** Manual Attendance Fallback System: user-specified total conducted class delta/adjustment */
+  manualTotalAdjustment?: number;
 }
 
 export interface TimetableEntry {
@@ -496,7 +500,24 @@ export function getLectures(
         continue;
       }
 
-      const override = overrideMap.get(id);
+      // Multi-tier override matching:
+      // 1. Exact 7-part versioned key match
+      // 2. Unversioned legacy 6-part key match
+      // 3. Date + Subject fallback match
+      let override = overrideMap.get(id);
+      if (!override && id.includes('|')) {
+        const legacy6PartId = buildLectureId(entry, dateString, resolvedType);
+        override = overrideMap.get(legacy6PartId);
+      }
+      if (!override) {
+        override = overrides.find(o => {
+          const parts = o.lectureId.split('|');
+          const oDate = parts.length === 7 ? parts[1] : parts[0];
+          const oSubj = o.subjectNameOverride || (parts.length === 7 ? parts[3] : parts[2]);
+          return oDate === dateString && oSubj?.toLowerCase() === entry.subjectName.toLowerCase();
+        });
+      }
+
       if (override) {
         // Apply all field-level overrides from the edit payload
         lectures.push({
@@ -602,7 +623,7 @@ export function useAttendanceStore() {
 
   const isBeforeStartDate = Boolean(parsed.onboarding.startDate) && dateOnly(formatDate(new Date())) < dateOnly(parsed.onboarding.startDate || '');
 
-  const rawSubjects = (parsed.onboarding.subjects && parsed.onboarding.subjects.length > 0)
+  const rawSubjects: SubjectConfig[] = (parsed.onboarding.subjects && parsed.onboarding.subjects.length > 0)
     ? parsed.onboarding.subjects
     : Array.from(new Set((parsed.onboarding.timetableEntries || []).map(e => e.subjectName).filter(Boolean))).map((name, idx) => ({
         id: `auto_${idx}_${name}`,
@@ -614,6 +635,8 @@ export function useAttendanceStore() {
         hasLab: (parsed.onboarding.timetableEntries || []).some(e => e.subjectName === name && e.componentType === 'LAB'),
         theoryTarget: 75,
         labTarget: 75,
+        manualAttendedAdjustment: 0,
+        manualTotalAdjustment: 0,
       }));
 
   const bySubject = rawSubjects.map(subject => {
@@ -637,6 +660,24 @@ export function useAttendanceStore() {
       overallStats.present += subjectCredits;
       overallStats.attendancePercentage = overallStats.conducted > 0
         ? Math.min(100, (overallStats.present / overallStats.conducted) * 100)
+        : null;
+    }
+
+    // Apply Manual Attendance Fallback System Adjustments
+    const manualAttended = subject.manualAttendedAdjustment || 0;
+    const manualTotal = subject.manualTotalAdjustment || 0;
+
+    if (manualAttended !== 0 || manualTotal !== 0) {
+      overallStats.present = Math.max(0, overallStats.present + manualAttended);
+      overallStats.conducted = Math.max(overallStats.present, overallStats.conducted + manualTotal);
+      overallStats.attendancePercentage = overallStats.conducted > 0
+        ? Math.round(Math.min(100, (overallStats.present / overallStats.conducted) * 100) * 100) / 100
+        : null;
+
+      theoryStats.present = Math.max(0, theoryStats.present + manualAttended);
+      theoryStats.conducted = Math.max(theoryStats.present, theoryStats.conducted + manualTotal);
+      theoryStats.attendancePercentage = theoryStats.conducted > 0
+        ? Math.round(Math.min(100, (theoryStats.present / theoryStats.conducted) * 100) * 100) / 100
         : null;
     }
 
@@ -769,6 +810,27 @@ export function useAttendanceStore() {
 
       next.push(updatedOverride);
       writeJson(ATTENDANCE_KEY, next);
+    },
+
+    /**
+     * Sets manual attendance fallback adjustments for a specific subject.
+     * Works independently of lecture history.
+     */
+    setSubjectManualAdjustment(subjectId: string, attendedAdj: number, totalAdj: number) {
+      const subjects = (parsed.onboarding.subjects || []).map(s => {
+        if (s.id === subjectId) {
+          return {
+            ...s,
+            manualAttendedAdjustment: attendedAdj,
+            manualTotalAdjustment: totalAdj,
+          };
+        }
+        return s;
+      });
+      writeJson(ONBOARDING_KEY, {
+        ...parsed.onboarding,
+        subjects,
+      });
     },
 
     setEvents(nextEvents: AcademicEvent[]) { writeJson('academic_events', nextEvents); },
