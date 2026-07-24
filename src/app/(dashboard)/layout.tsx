@@ -20,7 +20,8 @@ import {
   ListTodo,
   CalendarDays,
   Sun,
-  Moon
+  Moon,
+  Layers,
 } from 'lucide-react';
 
 import { useAttendanceStore, initializeSqliteState, savePreference } from '@/features/attendance/services/attendance-store';
@@ -28,15 +29,16 @@ import { supabase } from '@/shared/lib/supabase';
 
 
 const NAV_ITEMS = [
-  { href: '/dashboard',  label: 'Dashboard',        icon: LayoutDashboard },
-  { href: '/events',     label: 'Academic Events',  icon: ListTodo        },
-  { href: '/semester',   label: 'Semester Manager', icon: CalendarDays    },
-  { href: '/history',    label: 'Lecture History',  icon: ClipboardList   },
-  { href: '/calculator', label: 'Calculator',       icon: Calculator      },
-  { href: '/analytics',  label: 'Analytics',        icon: BarChart3       },
-  { href: '/subjects',   label: 'Subjects',         icon: BookOpen        },
-  { href: '/analyze',    label: 'PDF AI Import',    icon: FileText        },
-  { href: '/settings',   label: 'Settings',         icon: Settings        },
+  { href: '/dashboard',           label: 'Dashboard',            icon: LayoutDashboard },
+  { href: '/events',              label: 'Academic Events',      icon: ListTodo        },
+  { href: '/semester',            label: 'Semester Manager',     icon: CalendarDays    },
+  { href: '/timetable-versions',  label: 'Timetable Versions',  icon: Layers          },
+  { href: '/history',             label: 'Lecture History',      icon: ClipboardList   },
+  { href: '/calculator',          label: 'Calculator',           icon: Calculator      },
+  { href: '/analytics',           label: 'Analytics',            icon: BarChart3       },
+  { href: '/subjects',            label: 'Subjects',             icon: BookOpen        },
+  { href: '/analyze',             label: 'PDF AI Import',        icon: FileText        },
+  { href: '/settings',            label: 'Settings',             icon: Settings        },
 ];
 
 function Sidebar({

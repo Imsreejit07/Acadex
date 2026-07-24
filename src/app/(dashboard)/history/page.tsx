@@ -3,10 +3,11 @@
 import { useState, useMemo } from 'react';
 import { 
   Trash2, AlertCircle, CheckCircle, XCircle, Search, 
-  Filter, Calendar, RefreshCcw, FileSpreadsheet, Plus, Info, SlidersHorizontal
+  Filter, Calendar, RefreshCcw, FileSpreadsheet, Plus, Info, SlidersHorizontal, Pencil
 } from 'lucide-react';
 import { useHydratedStore } from '@/features/attendance/services/attendance-store';
-import type { LectureInstance, ComponentType, ExtraClass } from '@/features/attendance/services/attendance-store';
+import type { LectureInstance, ComponentType, ExtraClass, LectureEditPayload } from '@/features/attendance/services/attendance-store';
+import EditLectureModal from '@/features/history/components/EditLectureModal';
 
 function fmtDate(dateStr: string): string {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-IN', {
@@ -24,10 +25,11 @@ function fmtTime(time: string): string {
 }
 
 export default function HistoryPage() {
-  const { lectures, onboarding, subjects, deleteLecture, setLectureStatus, extraClasses, setExtraClasses, isFullyHydrated } = useHydratedStore();
+  const { lectures, onboarding, subjects, deleteLecture, setLectureStatus, editLectureRecord, extraClasses, setExtraClasses, isFullyHydrated } = useHydratedStore();
   const [search, setSearch] = useState('');
   const [filterSubject, setFilterSubject] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
+  const [editingLecture, setEditingLecture] = useState<LectureInstance | null>(null);
   
   // Custom manual record add modal state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -331,15 +333,24 @@ export default function HistoryPage() {
                       </td>
                       <td className="px-5 py-3.5 text-right whitespace-nowrap">
                         <div className="flex justify-end gap-1.5">
+                          {/* Full Edit — opens modal */}
+                          <button
+                            onClick={() => setEditingLecture(lecture)}
+                            className="px-2.5 py-1 rounded bg-secondary hover:bg-primary/15 text-foreground font-medium transition-colors flex items-center gap-1 text-xs"
+                            title="Edit this lecture record"
+                          >
+                            <Pencil size={11} />
+                            Edit
+                          </button>
+                          {/* Quick toggle — rapid attendance flip */}
                           {lecture.status === 'CONDUCTED' && (
-                            <>
-                              <button
-                                onClick={() => setLectureStatus(lecture.id, 'CONDUCTED', lecture.attendance === 'PRESENT' ? 'ABSENT' : 'PRESENT')}
-                                className="px-2.5 py-1 rounded bg-secondary hover:bg-muted-foreground/15 text-foreground font-medium transition-colors"
-                              >
-                                Toggle
-                              </button>
-                            </>
+                            <button
+                              onClick={() => setLectureStatus(lecture.id, 'CONDUCTED', lecture.attendance === 'PRESENT' ? 'ABSENT' : 'PRESENT')}
+                              className="px-2.5 py-1 rounded bg-secondary hover:bg-muted-foreground/15 text-foreground font-medium transition-colors text-xs"
+                              title="Quick toggle Present ↔ Absent"
+                            >
+                              Toggle
+                            </button>
                           )}
                           <button
                             onClick={() => {
@@ -475,6 +486,18 @@ export default function HistoryPage() {
             </div>
           </form>
         </div>
+      )}
+
+      {/* Edit Lecture Modal */}
+      {editingLecture && (
+        <EditLectureModal
+          lecture={editingLecture}
+          subjects={subjects}
+          onSave={(lectureId, edits) => {
+            editLectureRecord(lectureId, edits);
+          }}
+          onClose={() => setEditingLecture(null)}
+        />
       )}
     </div>
   );

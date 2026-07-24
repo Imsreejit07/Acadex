@@ -13,6 +13,7 @@ import {
 export default function SemesterPage() {
   const { 
     onboarding, subjects, lectures, setOnboarding,
+    activeTimetableEntries,
     holidays, setHolidays,
     extraClasses, setExtraClasses,
     rescheduledClasses, setRescheduledClasses,
@@ -66,8 +67,8 @@ export default function SemesterPage() {
   const rescheduleOptions = useMemo(() => {
     const list: Array<{ id: string; label: string; subjectName: string; type: 'TT' | 'LEC'; entryIdx?: number }> = [];
 
-    // Master recurring timetable slots
-    (onboarding.timetableEntries || []).forEach((entry, idx) => {
+    // Master recurring timetable slots (uses the active version's entries)
+    (activeTimetableEntries || []).forEach((entry, idx) => {
       list.push({
         id: `tt|${idx}`,
         label: `[Timetable] ${entry.day}: ${entry.subjectName} (${entry.startTime} - ${entry.endTime})`,

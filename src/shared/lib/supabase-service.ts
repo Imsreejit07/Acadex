@@ -213,6 +213,14 @@ export async function loadStateFromSupabase(): Promise<boolean> {
       if (meta.extraClasses) localStorage.setItem('extra_classes', JSON.stringify(meta.extraClasses));
       if (meta.rescheduledClasses) localStorage.setItem('rescheduled_classes', JSON.stringify(meta.rescheduledClasses));
       if (meta.attendanceCredits) localStorage.setItem('attendance_credits', JSON.stringify(meta.attendanceCredits));
+      // Restore timetable versions (the core of the versioning system)
+      if (meta.timetableVersions && Array.isArray(meta.timetableVersions)) {
+        onboarding.timetableVersions = meta.timetableVersions as OnboardingData['timetableVersions'];
+      }
+      // Restore migration flag
+      if (meta.overrideKeysMigrated !== undefined) {
+        onboarding.overrideKeysMigrated = meta.overrideKeysMigrated as boolean;
+      }
     }
 
     // Fallback: If meta.subjects was missing or empty, load from relational `subjects` table
@@ -352,6 +360,9 @@ export async function saveStateToSupabase(state: {
       userName: state.onboarding.userName,
       subjects: state.onboarding.subjects, // Primary JSON backup fallback
       timetableEntries: state.onboarding.timetableEntries,
+      // Versioned timetable — the core of the historical integrity system
+      timetableVersions: state.onboarding.timetableVersions,
+      overrideKeysMigrated: state.onboarding.overrideKeysMigrated,
       subjectExtras,
       geminiApiKey: customGeminiKey || undefined,
       onboardingCompletedAt: state.onboarding.onboardingCompletedAt,

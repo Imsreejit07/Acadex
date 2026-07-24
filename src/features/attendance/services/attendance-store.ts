@@ -8,10 +8,19 @@ import {
   type AttendanceStats,
 } from './attendance-engine';
 import { saveStateToSupabase } from '@/shared/lib/supabase-service';
+import {
+  resolveVersionForDate,
+  migrateFromLegacy,
+  migrateOverrideKeys,
+  buildVersionedLectureId,
+  createNewVersion as createNewVersionUtil,
+  getActiveVersion,
+  validateVersionIntegrity,
+} from '@/features/timetable/services/timetable-version-store';
 
 export type ComponentType = 'THEORY' | 'LAB' | 'TUTORIAL' | 'WORKSHOP' | 'SEMINAR' | 'OTHER';
-type LectureStatus = 'SCHEDULED' | 'CONDUCTED' | 'CANCELLED' | 'HOLIDAY';
-type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'MEDICAL_LEAVE' | 'DUTY_LEAVE';
+export type LectureStatus = 'SCHEDULED' | 'CONDUCTED' | 'CANCELLED' | 'HOLIDAY';
+export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'MEDICAL_LEAVE' | 'DUTY_LEAVE';
 
 export interface AcademicEvent {
   id: string;
@@ -95,23 +104,73 @@ export interface TimetableEntry {
   manualOverrideType?: string;
 }
 
+/**
+ * A single versioned timetable. The timetable is active from `effectiveFrom`
+ * until `effectiveUntil` (null = currently active, open-ended).
+ * Historical versions are immutable once referenced by lecture logs.
+ */
+export interface TimetableVersion {
+  id: string;
+  versionNumber: number;
+  effectiveFrom: string;  // ISO date YYYY-MM-DD
+  effectiveUntil: string | null; // null = currently active
+  status: 'ACTIVE' | 'HISTORICAL' | 'SCHEDULED';
+  createdAt: string;
+  entries: TimetableEntry[];
+}
+
 export interface OnboardingData {
   userName?: string;
   semesterName?: string;
   academicYear?: string;
   startDate?: string;
   subjects?: SubjectConfig[];
+  /**
+   * @deprecated Use timetableVersions instead.
+   * Kept for migration purposes only — will be consumed once on first boot
+   * and converted into timetableVersions[0] (Version 1).
+   */
   timetableEntries?: TimetableEntry[];
+  /**
+   * All timetable versions for this semester, ordered by effectiveFrom.
+   * This replaces the legacy flat timetableEntries array.
+   */
+  timetableVersions?: TimetableVersion[];
   /** Date when the user completed onboarding (mid-semester). Defaults to startDate when not set. */
   onboardingCompletedAt?: string;
   /** Whether mid-semester backfill has been applied (ensures it only runs once). */
   midSemesterBackfilled?: boolean;
+  /** Tracks whether override keys have been migrated to the 7-part versioned format. */
+  overrideKeysMigrated?: boolean;
 }
 
+/**
+ * An override record for a single lecture occurrence.
+ * Supports full field editing — not just status/attendance.
+ */
 export interface AttendanceOverride {
   lectureId: string;
   status: LectureStatus;
   attendance: AttendanceStatus | null;
+  // Optional editable field overrides (non-null = user has manually changed this field)
+  subjectNameOverride?: string;
+  componentTypeOverride?: ComponentType;
+  dateOverride?: string;
+  startTimeOverride?: string;
+  endTimeOverride?: string;
+  notesOverride?: string;
+}
+
+/** Payload for the editLectureRecord() store mutation */
+export interface LectureEditPayload {
+  subjectName?: string;
+  componentType?: ComponentType;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  status?: LectureStatus;
+  attendance?: AttendanceStatus | null;
+  notes?: string;
 }
 
 export interface LectureInstance {
@@ -136,14 +195,16 @@ const ONBOARDING_KEY = 'onboarding_data';
 const ATTENDANCE_KEY = 'attendance_overrides';
 const STORE_EVENT = 'attendance-tool-store-change';
 
-const defaultData: Required<Pick<OnboardingData, 'semesterName' | 'academicYear' | 'subjects' | 'timetableEntries'>> & OnboardingData = {
+const defaultData: OnboardingData = {
   semesterName: '',
   academicYear: '',
   startDate: '',
   subjects: [],
   timetableEntries: [],
+  timetableVersions: [],
   onboardingCompletedAt: '',
   midSemesterBackfilled: false,
+  overrideKeysMigrated: false,
 };
 
 const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
@@ -249,13 +310,57 @@ function subscribe(callback: () => void) {
 
 function getSnapshot() {
   const saved = readJson<OnboardingData>(ONBOARDING_KEY, {});
-  const onboarding = {
+  let onboarding: OnboardingData = {
     ...defaultData,
     ...saved,
     subjects: saved.subjects?.length ? saved.subjects : defaultData.subjects,
     timetableEntries: saved.timetableEntries?.length ? saved.timetableEntries : defaultData.timetableEntries,
   };
-  const overrides = readJson<AttendanceOverride[]>(ATTENDANCE_KEY, []);
+
+  // ── AUTO-MIGRATION: timetableEntries → timetableVersions ──────────────────
+  // Runs exactly once per user. If timetableVersions is absent but timetableEntries
+  // exists, wrap the existing timetable as Version 1 effective from the semester
+  // start date. This preserves all historical lecture records.
+  const needsVersionMigration =
+    (!onboarding.timetableVersions || onboarding.timetableVersions.length === 0) &&
+    (onboarding.timetableEntries && onboarding.timetableEntries.length > 0);
+
+  if (needsVersionMigration && typeof window !== 'undefined') {
+    const migratedVersions = migrateFromLegacy(
+      onboarding.timetableEntries,
+      onboarding.startDate,
+      []
+    );
+    onboarding = { ...onboarding, timetableVersions: migratedVersions };
+    // Persist migration immediately so it only runs once
+    window.localStorage.setItem(ONBOARDING_KEY, JSON.stringify(onboarding));
+    console.info('[Acadex Migration] Wrapped legacy timetableEntries as TimetableVersion 1:', migratedVersions[0]?.id);
+  }
+
+  let overrides = readJson<AttendanceOverride[]>(ATTENDANCE_KEY, []);
+
+  // ── AUTO-MIGRATION: attendance override key format (6-part → 7-part) ──────
+  // Runs once after version migration. Rewrites all existing override keys to
+  // include the Version 1 ID prefix, preserving all historical attendance data.
+  const versions = onboarding.timetableVersions || [];
+  if (
+    !onboarding.overrideKeysMigrated &&
+    versions.length > 0 &&
+    overrides.length > 0 &&
+    typeof window !== 'undefined'
+  ) {
+    const migratedOverrides = migrateOverrideKeys(overrides, versions);
+    const changed = migratedOverrides.some((o, i) => o.lectureId !== overrides[i]?.lectureId);
+    if (changed) {
+      overrides = migratedOverrides;
+      window.localStorage.setItem(ATTENDANCE_KEY, JSON.stringify(migratedOverrides));
+    }
+    // Mark as migrated so this never runs again
+    onboarding = { ...onboarding, overrideKeysMigrated: true };
+    window.localStorage.setItem(ONBOARDING_KEY, JSON.stringify(onboarding));
+    console.info('[Acadex Migration] Migrated attendance override keys to versioned format.');
+  }
+
   const events = readJson<AcademicEvent[]>('academic_events', []);
   const holidays = readJson<Holiday[]>('holidays_list', []);
   const extraClasses = readJson<ExtraClass[]>('extra_classes', []);
@@ -315,11 +420,12 @@ export function getLectures(
   const defaultPastStart = formatDate(new Date(today.getTime() - 30 * 86400000));
   const startDateStr = onboarding.startDate || defaultPastStart;
 
-  let start = dateOnly(startDateStr);
+  const start = dateOnly(startDateStr);
   const futureDate = new Date(today.getTime() + 14 * 86400000);
-  let end = dateOnly(formatDate(futureDate));
+  const end = dateOnly(formatDate(futureDate));
 
   const todayDateStr = formatDate(today);
+  // Build override map — keyed by lectureId
   const overrideMap = new Map(overrides.map(override => [override.lectureId, override]));
   const rescheduleMap = new Map(rescheduledClasses.map(rc => [rc.originalLectureId, rc]));
   const lectures: LectureInstance[] = [];
@@ -328,6 +434,12 @@ export function getLectures(
     ? dateOnly(onboarding.onboardingCompletedAt)
     : null;
   const isMidSemester = onboardingDate && onboardingDate > start;
+
+  // ── Version-aware timetable resolution ──────────────────────────────────────
+  // Use timetableVersions if available, otherwise fall back to flat timetableEntries.
+  // The fallback ensures backward compatibility during the migration window.
+  const versions = onboarding.timetableVersions;
+  const hasVersions = versions && versions.length > 0;
 
   for (const date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
     const dateString = formatDate(date);
@@ -338,11 +450,27 @@ export function getLectures(
       dateString >= h.startDate && dateString <= h.endDate
     );
 
-    for (const entry of onboarding.timetableEntries || []) {
+    // Resolve the correct timetable entries for this specific date
+    let dateEntries: TimetableEntry[];
+    let activeVersionId: string | null = null;
+    if (hasVersions) {
+      const version = resolveVersionForDate(versions!, dateString);
+      dateEntries = version ? version.entries : [];
+      activeVersionId = version ? version.id : null;
+    } else {
+      // Legacy flat path — no version ID in the lecture ID
+      dateEntries = onboarding.timetableEntries || [];
+    }
+
+    for (const entry of dateEntries) {
       if (entry.day.toUpperCase() !== day) continue;
 
       const resolvedType = getResolvedComponentType(entry, onboarding.subjects || []);
-      const id = buildLectureId(entry, dateString, resolvedType);
+
+      // Build lecture ID — use versioned format if versions exist, legacy format otherwise
+      const id = activeVersionId
+        ? buildVersionedLectureId(activeVersionId, dateString, day, entry.subjectName, resolvedType, entry.startTime, entry.endTime)
+        : buildLectureId(entry, dateString, resolvedType);
 
       const subjectHoliday = holidays.find(h =>
         h.type === 'SUBJECT' &&
@@ -354,28 +482,38 @@ export function getLectures(
       const reschedule = rescheduleMap.get(id);
 
       if (isHoliday) {
-        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as any, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: 'HOLIDAY', attendance: null });
+        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as ComponentType, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: 'HOLIDAY', attendance: null });
         continue;
       }
 
       if (reschedule) {
-        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as any, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: 'CANCELLED', attendance: null });
+        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as ComponentType, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: 'CANCELLED', attendance: null });
         continue;
       }
 
       const override = overrideMap.get(id);
       if (override) {
-        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as any, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: override.status || 'SCHEDULED', attendance: override.attendance || null });
+        // Apply all field-level overrides from the edit payload
+        lectures.push({
+          id,
+          subjectName: override.subjectNameOverride ?? entry.subjectName,
+          componentType: (override.componentTypeOverride ?? resolvedType) as ComponentType,
+          date: override.dateOverride ?? dateString,
+          startTime: override.startTimeOverride ?? entry.startTime,
+          endTime: override.endTimeOverride ?? entry.endTime,
+          status: override.status ?? 'SCHEDULED',
+          attendance: override.attendance ?? null,
+        });
         continue;
       }
 
       if (isMidSemester && date <= onboardingDate) {
-        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as any, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: 'CONDUCTED', attendance: 'PRESENT' });
+        lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as ComponentType, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: 'CONDUCTED', attendance: 'PRESENT' });
         continue;
       }
 
       const isPast = dateString < todayDateStr;
-      lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as any, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: isPast ? 'CONDUCTED' : 'SCHEDULED', attendance: isPast ? 'PRESENT' : null });
+      lectures.push({ id, subjectName: entry.subjectName, componentType: resolvedType as ComponentType, date: dateString, startTime: entry.startTime, endTime: entry.endTime, status: isPast ? 'CONDUCTED' : 'SCHEDULED', attendance: isPast ? 'PRESENT' : null });
     }
   }
 
@@ -391,9 +529,10 @@ export function getLectures(
   for (const rc of rescheduledClasses) {
     const rcDate = dateOnly(rc.newDate);
     if (rcDate <= end) {
-      const originalParts = rc.originalLectureId.split('|');
-      const subjectName = originalParts[2] || 'Rescheduled Class';
-      const compType = (originalParts[3] || 'THEORY') as ComponentType;
+      // Parse subject/type from the originalLectureId (supports both 6-part and 7-part formats)
+      const parts = rc.originalLectureId.split('|');
+      const subjectName = parts.length === 7 ? parts[3] : (parts[2] || 'Rescheduled Class');
+      const compType = (parts.length === 7 ? parts[4] : (parts[3] || 'THEORY')) as ComponentType;
       lectures.push({ id: `rescheduled|${rc.id}`, subjectName, componentType: compType, date: rc.newDate, startTime: rc.newStartTime, endTime: rc.newEndTime, status: 'CONDUCTED', attendance: rc.attendanceStatus });
     }
   }
@@ -532,9 +671,23 @@ export function useAttendanceStore() {
 
   const isHydrated = cloudHydrated || (typeof window !== 'undefined' && Boolean(localStorage.getItem('onboarding_data')));
 
+  // Derive the active timetable version's entries for use in components that need "today's timetable"
+  const timetableVersions = parsed.onboarding.timetableVersions || [];
+  const activeVersionEntries = (() => {
+    if (timetableVersions.length > 0) {
+      const todayStr = formatDate(new Date());
+      const active = resolveVersionForDate(timetableVersions, todayStr);
+      return active ? active.entries : (timetableVersions[timetableVersions.length - 1]?.entries || []);
+    }
+    return parsed.onboarding.timetableEntries || [];
+  })();
+
   return {
     isHydrated,
     onboarding: parsed.onboarding,
+    timetableVersions,
+    /** Entries from the currently-active timetable version */
+    activeTimetableEntries: activeVersionEntries,
     subjects: rawSubjects,
     overrides: parsed.overrides,
     events: parsed.events,
@@ -552,11 +705,67 @@ export function useAttendanceStore() {
     setOnboarding(data: OnboardingData) {
       writeJson(ONBOARDING_KEY, data);
     },
+
+    /**
+     * Creates a new timetable version effective from `effectiveFrom`.
+     * The previous active version is automatically closed one day before.
+     * Existing lecture history is NEVER modified.
+     */
+    applyNewTimetableVersion(entries: TimetableEntry[], effectiveFrom: string) {
+      const currentVersions = parsed.onboarding.timetableVersions || [];
+      const updatedVersions = createNewVersionUtil(currentVersions, entries, effectiveFrom);
+      const warnings = validateVersionIntegrity(updatedVersions);
+      if (warnings.length > 0) {
+        console.warn('[Timetable Versioning] Version integrity warnings:', warnings);
+      }
+      writeJson(ONBOARDING_KEY, {
+        ...parsed.onboarding,
+        timetableVersions: updatedVersions,
+      });
+    },
+
+    /**
+     * @deprecated Use applyNewTimetableVersion() instead for any edit that should
+     * create a new timetable version. This method is kept for direct onboarding data writes only.
+     */
     setLectureStatus(lectureId: string, status: LectureStatus, attendance: AttendanceStatus | null) {
       const next = parsed.overrides.filter(override => override.lectureId !== lectureId);
       next.push({ lectureId, status, attendance: status === 'CONDUCTED' ? attendance : null });
       writeJson(ATTENDANCE_KEY, next);
     },
+
+    /**
+     * Edits any fields of a historical lecture record.
+     * This creates or updates an override entry for the lecture.
+     * All downstream stats (attendance %, analytics, etc.) recalculate automatically
+     * because they are derived from getLectures() on every render.
+     */
+    editLectureRecord(lectureId: string, edits: LectureEditPayload) {
+      const existing = parsed.overrides.find(o => o.lectureId === lectureId);
+      const next = parsed.overrides.filter(o => o.lectureId !== lectureId);
+
+      const updatedOverride: AttendanceOverride = {
+        // Preserve any existing override fields
+        ...existing,
+        lectureId,
+        // Status and attendance (required fields with defaults)
+        status: edits.status ?? existing?.status ?? 'CONDUCTED',
+        attendance: edits.status === 'CANCELLED' || edits.status === 'HOLIDAY'
+          ? null
+          : (edits.attendance !== undefined ? edits.attendance : (existing?.attendance ?? null)),
+        // Optional editable field overrides
+        ...(edits.subjectName !== undefined && { subjectNameOverride: edits.subjectName }),
+        ...(edits.componentType !== undefined && { componentTypeOverride: edits.componentType }),
+        ...(edits.date !== undefined && { dateOverride: edits.date }),
+        ...(edits.startTime !== undefined && { startTimeOverride: edits.startTime }),
+        ...(edits.endTime !== undefined && { endTimeOverride: edits.endTime }),
+        ...(edits.notes !== undefined && { notesOverride: edits.notes }),
+      };
+
+      next.push(updatedOverride);
+      writeJson(ATTENDANCE_KEY, next);
+    },
+
     setEvents(nextEvents: AcademicEvent[]) { writeJson('academic_events', nextEvents); },
     setHolidays(nextHolidays: Holiday[]) { writeJson('holidays_list', nextHolidays); },
     setExtraClasses(nextExtra: ExtraClass[]) { writeJson('extra_classes', nextExtra); },
