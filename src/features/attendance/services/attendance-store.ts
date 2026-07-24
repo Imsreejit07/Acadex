@@ -715,21 +715,51 @@ export function useAttendanceStore() {
   const theoryLectures = lectures.filter(l => l.componentType !== 'LAB');
   const labLectures = lectures.filter(l => l.componentType === 'LAB');
 
-  const totalTheoryStats = calculateAttendance(theoryLectures.map(toEngineLecture));
-  const totalLabStats = calculateAttendance(labLectures.map(toEngineLecture));
-  const overallStats = calculateAttendance(lectures.map(toEngineLecture));
+  // Aggregate overall, theory, and lab statistics across all subjects (including baseline + manual adjustments)
+  const totalConducted = bySubject.reduce((sum, item) => sum + item.overallStats.conducted, 0);
+  const totalPresent = bySubject.reduce((sum, item) => sum + item.overallStats.present, 0);
+  const totalAbsent = bySubject.reduce((sum, item) => sum + item.overallStats.absent, 0);
+  const totalMedicalLeave = bySubject.reduce((sum, item) => sum + item.overallStats.medicalLeave, 0);
+  const totalDutyLeave = bySubject.reduce((sum, item) => sum + item.overallStats.dutyLeave, 0);
 
-  const totalCredits = parsed.attendanceCredits.reduce((sum, c) => sum + c.credits, 0);
-  if (totalCredits > 0) {
-    totalTheoryStats.present += totalCredits;
-    totalTheoryStats.attendancePercentage = totalTheoryStats.conducted > 0
-      ? Math.min(100, (totalTheoryStats.present / totalTheoryStats.conducted) * 100)
-      : null;
-    overallStats.present += totalCredits;
-    overallStats.attendancePercentage = overallStats.conducted > 0
-      ? Math.min(100, (overallStats.present / overallStats.conducted) * 100)
-      : null;
-  }
+  const overallStats: AttendanceStats = {
+    conducted: totalConducted,
+    present: totalPresent,
+    absent: totalAbsent,
+    medicalLeave: totalMedicalLeave,
+    dutyLeave: totalDutyLeave,
+    cancelled: lectures.filter(l => l.status === 'CANCELLED').length,
+    holiday: lectures.filter(l => l.status === 'HOLIDAY').length,
+    scheduled: lectures.filter(l => l.status === 'SCHEDULED').length,
+    totalScheduled: lectures.length,
+    attendancePercentage: totalConducted > 0
+      ? Math.round(Math.min(100, (totalPresent / totalConducted) * 100) * 100) / 100
+      : null,
+  };
+
+  const totalTheoryConducted = bySubject.reduce((sum, item) => sum + item.theoryStats.conducted, 0);
+  const totalTheoryPresent = bySubject.reduce((sum, item) => sum + item.theoryStats.present, 0);
+
+  const totalTheoryStats: AttendanceStats = {
+    ...calculateAttendance(theoryLectures.map(toEngineLecture)),
+    conducted: totalTheoryConducted,
+    present: totalTheoryPresent,
+    attendancePercentage: totalTheoryConducted > 0
+      ? Math.round(Math.min(100, (totalTheoryPresent / totalTheoryConducted) * 100) * 100) / 100
+      : null,
+  };
+
+  const totalLabConducted = bySubject.reduce((sum, item) => sum + item.labStats.conducted, 0);
+  const totalLabPresent = bySubject.reduce((sum, item) => sum + item.labStats.present, 0);
+
+  const totalLabStats: AttendanceStats = {
+    ...calculateAttendance(labLectures.map(toEngineLecture)),
+    conducted: totalLabConducted,
+    present: totalLabPresent,
+    attendancePercentage: totalLabConducted > 0
+      ? Math.round(Math.min(100, (totalLabPresent / totalLabConducted) * 100) * 100) / 100
+      : null,
+  };
 
   const isHydrated = cloudHydrated || (typeof window !== 'undefined' && Boolean(localStorage.getItem('onboarding_data')));
 
