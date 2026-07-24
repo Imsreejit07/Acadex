@@ -47,6 +47,19 @@ export async function POST(request: Request) {
     }
 
     const bytes = await file.arrayBuffer();
+
+    // Pre-flight: check that we have a key before handing off to the parser
+    const hasApiKey = finalApiKey || process.env.GEMINI_API_KEY;
+    if (!hasApiKey) {
+      return NextResponse.json(
+        {
+          error: 'No Gemini API key configured.',
+          details: 'The app has no server-side GEMINI_API_KEY set. Please enter your personal Gemini API key in the "Gemini API Key Configuration" section at the top of this page and click "Test Key" before uploading.',
+        },
+        { status: 400 }
+      );
+    }
+
     const result = await parseTimetableFromBuffer(bytes, file.name, finalApiKey);
     return NextResponse.json(result);
   } catch (error: unknown) {
@@ -56,7 +69,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        error: 'Failed to parse timetable.',
+        error: 'Failed to parse timetable. Please ensure your API key is valid and try again.',
         details: errMsg,
       },
       { status: 500 }

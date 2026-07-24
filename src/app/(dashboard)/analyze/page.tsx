@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { 
   FileText, Upload, RefreshCw, ChevronDown, ChevronUp, 
   AlertTriangle, CheckCircle2, XCircle, SkipForward, Clock, Sparkles, Check, FileCheck,
@@ -202,6 +202,20 @@ export default function AnalyzePDFPage() {
   const [rawMarkdown, setRawMarkdown] = useState<string | undefined>(undefined);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Controlled state for the custom API key input.
+  // MUST be initialised via useEffect to avoid React hydration error #418.
+  // localStorage does not exist on the server, so direct reads during render
+  // produce different text on SSR vs CSR → React throws a mismatch.
+  const [customApiKeyValue, setCustomApiKeyValue] = useState('');
+  const [hasCustomKey, setHasCustomKey] = useState(false);
+
+  // Sync localStorage → state once the component mounts on the client.
+  useEffect(() => {
+    const val = localStorage.getItem('custom_gemini_api_key') || '';
+    setCustomApiKeyValue(val);
+    setHasCustomKey(!!val);
+  }, []);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement> | File) => {
     const file = event instanceof File
@@ -490,18 +504,18 @@ export default function AnalyzePDFPage() {
             <h3 className="text-xs font-bold text-foreground">Gemini API Key Configuration</h3>
           </div>
           <span className="text-[10px] text-muted-foreground">
-            {typeof window !== 'undefined' && localStorage.getItem('custom_gemini_api_key')
-              ? '✓ Custom Key Active'
-              : 'Using App Default Key'}
+            {hasCustomKey ? '✓ Custom Key Active' : 'Using App Default Key'}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="password"
             placeholder="Paste your Gemini API Key here (AIzaSy...)"
-            value={typeof window !== 'undefined' ? (localStorage.getItem('custom_gemini_api_key') || '') : ''}
+            value={customApiKeyValue}
             onChange={(e) => {
               const val = e.target.value.trim();
+              setCustomApiKeyValue(val);
+              setHasCustomKey(!!val);
               if (val) {
                 localStorage.setItem('custom_gemini_api_key', val);
               } else {

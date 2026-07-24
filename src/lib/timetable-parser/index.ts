@@ -180,28 +180,28 @@ export async function testLlmConnection(): Promise<{ success: boolean; parserTyp
       success: false,
       parserType: 'gemini',
       model: 'none',
-      message: 'GEMINI_API_KEY is not set in environment variables.',
+      message: 'No server-side GEMINI_API_KEY configured. Please enter your personal Gemini API key in the PDF AI Import page to use this feature.',
     };
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-lite',
+      model: 'gemini-2.5-flash',
       contents: 'Say "Connection OK" in exactly 2 words',
     });
     const text = response.text?.trim() || 'No response';
     return {
       success: true,
       parserType: 'gemini',
-      model: 'gemini-2.5-flash-lite',
+      model: 'gemini-2.5-flash',
       message: `Successfully connected to Gemini API. Reply: "${text}"`,
     };
   } catch (err: unknown) {
     return {
       success: false,
       parserType: 'gemini',
-      model: 'gemini-2.5-flash-lite',
+      model: 'gemini-2.5-flash',
       message: 'Failed to connect to Gemini API.',
       details: err instanceof Error ? err.message : String(err),
     };
