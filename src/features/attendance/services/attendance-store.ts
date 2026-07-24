@@ -308,6 +308,53 @@ function subscribe(callback: () => void) {
   };
 }
 
+// ─── AUTO-MIGRATIONS ──────────────────────────────────────────────────────────
+// Run migrations synchronously on script load, BEFORE React hydrates.
+// This prevents hydration mismatches because getSnapshot will read the already-migrated data.
+if (typeof window !== 'undefined') {
+  try {
+    const rawOnboarding = window.localStorage.getItem(ONBOARDING_KEY);
+    if (rawOnboarding) {
+      const parsed = JSON.parse(rawOnboarding) as OnboardingData;
+      let changed = false;
+
+      // 1. Timetable versioning migration
+      const needsVersionMigration =
+        (!parsed.timetableVersions || parsed.timetableVersions.length === 0) &&
+        (parsed.timetableEntries && parsed.timetableEntries.length > 0);
+
+      if (needsVersionMigration) {
+        parsed.timetableVersions = migrateFromLegacy(parsed.timetableEntries, parsed.startDate, []);
+        changed = true;
+        console.info('[Acadex Migration] Wrapped legacy timetableEntries as TimetableVersion 1:', parsed.timetableVersions[0]?.id);
+      }
+
+      // 2. Attendance override keys migration (6-part -> 7-part)
+      const rawOverrides = window.localStorage.getItem(ATTENDANCE_KEY);
+      if (rawOverrides) {
+        const overrides = JSON.parse(rawOverrides) as AttendanceOverride[];
+        const versions = parsed.timetableVersions || [];
+        
+        if (!parsed.overrideKeysMigrated && versions.length > 0 && overrides.length > 0) {
+          const migratedOverrides = migrateOverrideKeys(overrides, versions);
+          if (migratedOverrides.some((o, i) => o.lectureId !== overrides[i]?.lectureId)) {
+            window.localStorage.setItem(ATTENDANCE_KEY, JSON.stringify(migratedOverrides));
+          }
+          parsed.overrideKeysMigrated = true;
+          changed = true;
+          console.info('[Acadex Migration] Migrated attendance override keys to versioned format.');
+        }
+      }
+
+      if (changed) {
+        window.localStorage.setItem(ONBOARDING_KEY, JSON.stringify(parsed));
+      }
+    }
+  } catch (err) {
+    console.error('Failed to run Acadex auto-migrations:', err);
+  }
+}
+
 function getSnapshot() {
   const saved = readJson<OnboardingData>(ONBOARDING_KEY, {});
   let onboarding: OnboardingData = {
@@ -317,49 +364,7 @@ function getSnapshot() {
     timetableEntries: saved.timetableEntries?.length ? saved.timetableEntries : defaultData.timetableEntries,
   };
 
-  // ── AUTO-MIGRATION: timetableEntries → timetableVersions ──────────────────
-  // Runs exactly once per user. If timetableVersions is absent but timetableEntries
-  // exists, wrap the existing timetable as Version 1 effective from the semester
-  // start date. This preserves all historical lecture records.
-  const needsVersionMigration =
-    (!onboarding.timetableVersions || onboarding.timetableVersions.length === 0) &&
-    (onboarding.timetableEntries && onboarding.timetableEntries.length > 0);
-
-  if (needsVersionMigration && typeof window !== 'undefined') {
-    const migratedVersions = migrateFromLegacy(
-      onboarding.timetableEntries,
-      onboarding.startDate,
-      []
-    );
-    onboarding = { ...onboarding, timetableVersions: migratedVersions };
-    // Persist migration immediately so it only runs once
-    window.localStorage.setItem(ONBOARDING_KEY, JSON.stringify(onboarding));
-    console.info('[Acadex Migration] Wrapped legacy timetableEntries as TimetableVersion 1:', migratedVersions[0]?.id);
-  }
-
   let overrides = readJson<AttendanceOverride[]>(ATTENDANCE_KEY, []);
-
-  // ── AUTO-MIGRATION: attendance override key format (6-part → 7-part) ──────
-  // Runs once after version migration. Rewrites all existing override keys to
-  // include the Version 1 ID prefix, preserving all historical attendance data.
-  const versions = onboarding.timetableVersions || [];
-  if (
-    !onboarding.overrideKeysMigrated &&
-    versions.length > 0 &&
-    overrides.length > 0 &&
-    typeof window !== 'undefined'
-  ) {
-    const migratedOverrides = migrateOverrideKeys(overrides, versions);
-    const changed = migratedOverrides.some((o, i) => o.lectureId !== overrides[i]?.lectureId);
-    if (changed) {
-      overrides = migratedOverrides;
-      window.localStorage.setItem(ATTENDANCE_KEY, JSON.stringify(migratedOverrides));
-    }
-    // Mark as migrated so this never runs again
-    onboarding = { ...onboarding, overrideKeysMigrated: true };
-    window.localStorage.setItem(ONBOARDING_KEY, JSON.stringify(onboarding));
-    console.info('[Acadex Migration] Migrated attendance override keys to versioned format.');
-  }
 
   const events = readJson<AcademicEvent[]>('academic_events', []);
   const holidays = readJson<Holiday[]>('holidays_list', []);

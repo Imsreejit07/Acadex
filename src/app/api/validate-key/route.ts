@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     // Lightweight test call to Gemini API
     const ai = new GoogleGenAI({ apiKey: rawKey });
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-lite',
+      model: 'gemini-2.5-flash',
       contents: 'Reply with "API OK" in exactly two words.',
     });
 
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      model: 'gemini-2.5-flash-lite',
+      model: 'gemini-2.5-flash',
       message: `API Key validated successfully! Gemini response: "${reply}"`,
     });
   } catch (error: unknown) {
