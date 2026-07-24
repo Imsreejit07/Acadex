@@ -189,7 +189,15 @@ export async function loadStateFromSupabase(): Promise<boolean> {
         onboarding.timetableEntries = meta.timetableEntries as OnboardingData['timetableEntries'];
       }
       if (meta.subjectExtras && onboarding.subjects) {
-        const extras = meta.subjectExtras as Record<string, { hasLab?: boolean; theoryTarget?: number; labTarget?: number }>;
+        const extras = meta.subjectExtras as Record<string, { 
+          hasLab?: boolean; 
+          theoryTarget?: number; 
+          labTarget?: number;
+          baselineAttended?: number;
+          baselineMissed?: number;
+          manualAttendedAdjustment?: number;
+          manualTotalAdjustment?: number;
+        }>;
         onboarding.subjects = onboarding.subjects.map(s => ({
           ...s,
           ...(extras[s.name] || {}),
@@ -217,9 +225,12 @@ export async function loadStateFromSupabase(): Promise<boolean> {
       if (meta.timetableVersions && Array.isArray(meta.timetableVersions)) {
         onboarding.timetableVersions = meta.timetableVersions as OnboardingData['timetableVersions'];
       }
-      // Restore migration flag
+      // Restore migration flag and history cleared cutoff date
       if (meta.overrideKeysMigrated !== undefined) {
         onboarding.overrideKeysMigrated = meta.overrideKeysMigrated as boolean;
+      }
+      if (meta.historyClearedAt !== undefined) {
+        onboarding.historyClearedAt = meta.historyClearedAt as string;
       }
     }
 
@@ -345,12 +356,24 @@ export async function saveStateToSupabase(state: {
     }
 
     // Save all auxiliary data as metadata in the description column
-    const subjectExtras: Record<string, { hasLab?: boolean; theoryTarget?: number; labTarget?: number }> = {};
+    const subjectExtras: Record<string, { 
+      hasLab?: boolean; 
+      theoryTarget?: number; 
+      labTarget?: number;
+      baselineAttended?: number;
+      baselineMissed?: number;
+      manualAttendedAdjustment?: number;
+      manualTotalAdjustment?: number;
+    }> = {};
     for (const s of state.onboarding.subjects || []) {
       subjectExtras[s.name] = {
         hasLab: s.hasLab,
         theoryTarget: s.theoryTarget,
         labTarget: s.labTarget,
+        baselineAttended: s.baselineAttended,
+        baselineMissed: s.baselineMissed,
+        manualAttendedAdjustment: s.manualAttendedAdjustment,
+        manualTotalAdjustment: s.manualTotalAdjustment,
       };
     }
 
@@ -363,6 +386,7 @@ export async function saveStateToSupabase(state: {
       // Versioned timetable — the core of the historical integrity system
       timetableVersions: state.onboarding.timetableVersions,
       overrideKeysMigrated: state.onboarding.overrideKeysMigrated,
+      historyClearedAt: state.onboarding.historyClearedAt,
       subjectExtras,
       geminiApiKey: customGeminiKey || undefined,
       onboardingCompletedAt: state.onboarding.onboardingCompletedAt,

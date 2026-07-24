@@ -912,6 +912,8 @@ export function useAttendanceStore() {
 
       const subjects = (parsed.onboarding.subjects || []).map(s => ({
         ...s,
+        baselineAttended: 0,
+        baselineMissed: 0,
         manualAttendedAdjustment: 0,
         manualTotalAdjustment: 0,
       }));
