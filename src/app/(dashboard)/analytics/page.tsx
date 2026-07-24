@@ -57,7 +57,7 @@ export default function AnalyticsPage() {
     events, holidays, extraClasses, attendanceCredits, isHydrated 
   } = useAttendanceStore();
 
-  const conductedCount = useMemo(() => lectures.filter(l => l.status === 'CONDUCTED').length, [lectures]);
+  const conductedCount = overallStats.conducted;
 
   // ── Weekly chart data ──
   const weeklyData = useMemo(() => {

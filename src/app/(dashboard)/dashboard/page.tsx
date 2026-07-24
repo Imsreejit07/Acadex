@@ -135,23 +135,11 @@ export default function DashboardPage() {
   );
 
   const dashboardStats = useMemo(() => {
-    let conductedEvents = 0;
-    let presentEvents = 0;
-
-    lectures.forEach((l) => {
-      if (l.status === 'CONDUCTED') {
-        conductedEvents++;
-        if (l.attendance === 'PRESENT' || l.attendance === 'MEDICAL_LEAVE' || l.attendance === 'DUTY_LEAVE') {
-          presentEvents++;
-        }
-      }
-    });
-
     return {
-      conductedEvents,
-      presentEvents,
+      conductedEvents: overallStats.conducted,
+      presentEvents: overallStats.present,
     };
-  }, [lectures]);
+  }, [overallStats]);
 
   const todayFormatted = now.toLocaleDateString('en-IN', {
     weekday: 'long',
@@ -534,7 +522,7 @@ export default function DashboardPage() {
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Overall Attendance</p>
               <p className="text-xl font-bold text-foreground mt-1">
-                {dashboardStats.presentEvents}/{dashboardStats.conductedEvents}
+                {overallStats.present}/{overallStats.conducted}
               </p>
               <p className="text-[10px] text-muted-foreground mt-0.5">
                 Class sessions attended ({overallStats.present}/{overallStats.conducted} units)
