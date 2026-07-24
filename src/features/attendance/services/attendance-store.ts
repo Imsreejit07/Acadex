@@ -93,6 +93,10 @@ export interface SubjectConfig {
   hasLab?: boolean;
   theoryTarget?: number;
   labTarget?: number;
+  /** Baseline Attendance: user-entered starting attended count when starting mid-semester or after reset */
+  baselineAttended?: number;
+  /** Baseline Attendance: user-entered starting missed count when starting mid-semester or after reset */
+  baselineMissed?: number;
   /** Manual Attendance Fallback System: user-specified attended class delta/adjustment */
   manualAttendedAdjustment?: number;
   /** Manual Attendance Fallback System: user-specified total conducted class delta/adjustment */
@@ -146,6 +150,8 @@ export interface OnboardingData {
   midSemesterBackfilled?: boolean;
   /** Tracks whether override keys have been migrated to the 7-part versioned format. */
   overrideKeysMigrated?: boolean;
+  /** Cutoff date for historical lecture generation. Dates prior to this generate NO automatic lectures. */
+  historyClearedAt?: string;
 }
 
 /**
@@ -427,9 +433,11 @@ export function getLectures(
   today = new Date()
 ): LectureInstance[] {
   const defaultPastStart = formatDate(new Date(today.getTime() - 30 * 86400000));
-  const startDateStr = onboarding.startDate || defaultPastStart;
+  // Effective start date for generating automatic timetable lectures.
+  // If the user cleared history and set a baseline, historyClearedAt becomes the cutoff.
+  const effectiveStartStr = onboarding.historyClearedAt || onboarding.startDate || defaultPastStart;
 
-  const start = dateOnly(startDateStr);
+  const start = dateOnly(effectiveStartStr);
   const futureDate = new Date(today.getTime() + 14 * 86400000);
   const end = dateOnly(formatDate(futureDate));
 
@@ -663,19 +671,27 @@ export function useAttendanceStore() {
         : null;
     }
 
+    // Apply Baseline Attendance (starting counts when starting mid-semester or after reset)
+    const baselineAttended = subject.baselineAttended || 0;
+    const baselineMissed = subject.baselineMissed || 0;
+    const baselineConducted = baselineAttended + baselineMissed;
+
     // Apply Manual Attendance Fallback System Adjustments
     const manualAttended = subject.manualAttendedAdjustment || 0;
     const manualTotal = subject.manualTotalAdjustment || 0;
 
-    if (manualAttended !== 0 || manualTotal !== 0) {
-      overallStats.present = Math.max(0, overallStats.present + manualAttended);
-      overallStats.conducted = Math.max(overallStats.present, overallStats.conducted + manualTotal);
+    const totalAttendedAdd = baselineAttended + manualAttended;
+    const totalConductedAdd = baselineConducted + manualTotal;
+
+    if (totalAttendedAdd !== 0 || totalConductedAdd !== 0) {
+      overallStats.present = Math.max(0, overallStats.present + totalAttendedAdd);
+      overallStats.conducted = Math.max(overallStats.present, overallStats.conducted + totalConductedAdd);
       overallStats.attendancePercentage = overallStats.conducted > 0
         ? Math.round(Math.min(100, (overallStats.present / overallStats.conducted) * 100) * 100) / 100
         : null;
 
-      theoryStats.present = Math.max(0, theoryStats.present + manualAttended);
-      theoryStats.conducted = Math.max(theoryStats.present, theoryStats.conducted + manualTotal);
+      theoryStats.present = Math.max(0, theoryStats.present + totalAttendedAdd);
+      theoryStats.conducted = Math.max(theoryStats.present, theoryStats.conducted + totalConductedAdd);
       theoryStats.attendancePercentage = theoryStats.conducted > 0
         ? Math.round(Math.min(100, (theoryStats.present / theoryStats.conducted) * 100) * 100) / 100
         : null;
@@ -851,6 +867,63 @@ export function useAttendanceStore() {
         return;
       }
       writeJson(ATTENDANCE_KEY, parsed.overrides.filter(o => o.lectureId !== lectureId));
+    },
+
+    /**
+     * Clears all lecture logs, overrides, extra classes, rescheduled classes,
+     * attendance credits, and manual subject adjustments.
+     * Sets historyClearedAt to today so past lectures are NOT automatically regenerated.
+     */
+    clearAllLogsAndSetBaselineDate(todayString = formatDate(new Date())) {
+      writeJson(ATTENDANCE_KEY, []);
+      writeJson('extra_classes', []);
+      writeJson('rescheduled_classes', []);
+      writeJson('attendance_credits', []);
+
+      const subjects = (parsed.onboarding.subjects || []).map(s => ({
+        ...s,
+        manualAttendedAdjustment: 0,
+        manualTotalAdjustment: 0,
+      }));
+
+      writeJson(ONBOARDING_KEY, {
+        ...parsed.onboarding,
+        historyClearedAt: todayString,
+        subjects,
+      });
+    },
+
+    /**
+     * Sets baseline starting attendance for all subjects at once.
+     */
+    setAllSubjectBaselines(baselines: Array<{ subjectId: string; attended: number; missed: number }>) {
+      const baselineMap = new Map(baselines.map(b => [b.subjectId, b]));
+      const subjects = (parsed.onboarding.subjects || []).map(s => {
+        const b = baselineMap.get(s.id);
+        if (b) {
+          return {
+            ...s,
+            baselineAttended: Math.max(0, b.attended),
+            baselineMissed: Math.max(0, b.missed),
+          };
+        }
+        return s;
+      });
+
+      writeJson(ONBOARDING_KEY, {
+        ...parsed.onboarding,
+        subjects,
+      });
+    },
+
+    /**
+     * Explicitly regenerates past lecture history starting from the semester start date.
+     * Resets historyClearedAt.
+     */
+    regenerateHistoryFromStart() {
+      const updatedOnboarding = { ...parsed.onboarding };
+      delete updatedOnboarding.historyClearedAt;
+      writeJson(ONBOARDING_KEY, updatedOnboarding);
     },
 
     /**

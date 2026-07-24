@@ -3,11 +3,13 @@
 import { useState, useMemo } from 'react';
 import { 
   Trash2, AlertCircle, CheckCircle, XCircle, Search, 
-  Filter, Calendar, RefreshCcw, FileSpreadsheet, Plus, Info, SlidersHorizontal, Pencil
+  Filter, Calendar, RefreshCcw, FileSpreadsheet, Plus, Info, SlidersHorizontal, Pencil,
+  RotateCcw, Calculator
 } from 'lucide-react';
 import { useHydratedStore } from '@/features/attendance/services/attendance-store';
 import type { LectureInstance, ComponentType, ExtraClass, LectureEditPayload } from '@/features/attendance/services/attendance-store';
 import EditLectureModal from '@/features/history/components/EditLectureModal';
+import BaselineSetupModal from '@/features/subjects/components/BaselineSetupModal';
 
 function fmtDate(dateStr: string): string {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-IN', {
@@ -25,11 +27,16 @@ function fmtTime(time: string): string {
 }
 
 export default function HistoryPage() {
-  const { lectures, onboarding, subjects, deleteLecture, setLectureStatus, editLectureRecord, clearAllLogs, extraClasses, setExtraClasses, isFullyHydrated } = useHydratedStore();
+  const { 
+    lectures, onboarding, subjects, deleteLecture, setLectureStatus, editLectureRecord, 
+    clearAllLogsAndSetBaselineDate, setAllSubjectBaselines, regenerateHistoryFromStart,
+    extraClasses, setExtraClasses, isFullyHydrated 
+  } = useHydratedStore();
   const [search, setSearch] = useState('');
   const [filterSubject, setFilterSubject] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [editingLecture, setEditingLecture] = useState<LectureInstance | null>(null);
+  const [showBaselineModal, setShowBaselineModal] = useState(false);
   
   // Custom manual record add modal state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -170,19 +177,45 @@ export default function HistoryPage() {
             The single source of truth for the attendance engine. View or modify past lecture events.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {onboarding.historyClearedAt ? (
+            <button
+              onClick={() => {
+                if (confirm('Regenerate automatic historical lecture logs starting from your semester start date?')) {
+                  regenerateHistoryFromStart();
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 transition-all"
+              title="Regenerate past lecture logs from semester start"
+            >
+              <RotateCcw size={14} />
+              Regenerate History
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                if (confirm('Are you sure you want to CLEAR ALL LECTURE HISTORY?\n\nPast lectures will NOT be automatically regenerated. You will be prompted to enter your current starting attendance baseline for each subject.')) {
+                  clearAllLogsAndSetBaselineDate();
+                  setShowBaselineModal(true);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 transition-all"
+              title="Clear all past lecture logs and set starting baseline"
+            >
+              <Trash2 size={14} />
+              Clear History & Set Baseline
+            </button>
+          )}
+
           <button
-            onClick={() => {
-              if (confirm('Are you sure you want to DELETE ALL LECTURE LOGS?\n\nThis will permanently delete all attendance overrides, extra classes, rescheduled classes, credits, and manual adjustments.')) {
-                clearAllLogs();
-              }
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 transition-all"
-            title="Delete all attendance overrides and historical logs"
+            onClick={() => setShowBaselineModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-secondary hover:bg-muted border border-border text-foreground transition-all"
+            title="Set starting attendance counts for each subject"
           >
-            <Trash2 size={14} />
-            Delete All Logs
+            <Calculator size={14} />
+            Edit Starting Baseline
           </button>
+
           <button
             onClick={() => {
               if (subjects.length > 0) setCustomSubject(subjects[0].name);
@@ -191,10 +224,27 @@ export default function HistoryPage() {
             className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-all shadow-sm"
           >
             <Plus size={16} />
-            Log Manual Class
+            Log Class
           </button>
         </div>
       </div>
+
+      {onboarding.historyClearedAt && (
+        <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 flex flex-wrap items-center justify-between gap-3 text-xs text-blue-600 dark:text-blue-400">
+          <div className="flex items-center gap-2">
+            <Info size={16} className="shrink-0" />
+            <span>
+              <strong>Clean Slate Active:</strong> History cutoff set to {onboarding.historyClearedAt}. Past lectures are not regenerated. Upcoming lectures will log normally.
+            </span>
+          </div>
+          <button
+            onClick={() => setShowBaselineModal(true)}
+            className="px-3 py-1 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 font-bold transition-colors"
+          >
+            Set Subject Baselines
+          </button>
+        </div>
+      )}
 
       {/* Stats Cards grid (Event count-focused, with unit subtexts) */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -511,6 +561,17 @@ export default function HistoryPage() {
             editLectureRecord(lectureId, edits);
           }}
           onClose={() => setEditingLecture(null)}
+        />
+      )}
+
+      {/* Baseline Setup Modal */}
+      {showBaselineModal && (
+        <BaselineSetupModal
+          subjects={subjects}
+          onSave={(baselines) => {
+            setAllSubjectBaselines(baselines);
+          }}
+          onClose={() => setShowBaselineModal(false)}
         />
       )}
     </div>
