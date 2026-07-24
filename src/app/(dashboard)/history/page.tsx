@@ -25,7 +25,7 @@ function fmtTime(time: string): string {
 }
 
 export default function HistoryPage() {
-  const { lectures, onboarding, subjects, deleteLecture, setLectureStatus, editLectureRecord, extraClasses, setExtraClasses, isFullyHydrated } = useHydratedStore();
+  const { lectures, onboarding, subjects, deleteLecture, setLectureStatus, editLectureRecord, clearAllLogs, extraClasses, setExtraClasses, isFullyHydrated } = useHydratedStore();
   const [search, setSearch] = useState('');
   const [filterSubject, setFilterSubject] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -170,16 +170,30 @@ export default function HistoryPage() {
             The single source of truth for the attendance engine. View or modify past lecture events.
           </p>
         </div>
-        <button
-          onClick={() => {
-            if (subjects.length > 0) setCustomSubject(subjects[0].name);
-            setShowAddModal(true);
-          }}
-          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-all shadow-sm"
-        >
-          <Plus size={16} />
-          Log Manual Class
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (confirm('Are you sure you want to DELETE ALL LECTURE LOGS?\n\nThis will permanently delete all attendance overrides, extra classes, rescheduled classes, credits, and manual adjustments.')) {
+                clearAllLogs();
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 transition-all"
+            title="Delete all attendance overrides and historical logs"
+          >
+            <Trash2 size={14} />
+            Delete All Logs
+          </button>
+          <button
+            onClick={() => {
+              if (subjects.length > 0) setCustomSubject(subjects[0].name);
+              setShowAddModal(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-all shadow-sm"
+          >
+            <Plus size={16} />
+            Log Manual Class
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards grid (Event count-focused, with unit subtexts) */}

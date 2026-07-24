@@ -852,6 +852,29 @@ export function useAttendanceStore() {
       }
       writeJson(ATTENDANCE_KEY, parsed.overrides.filter(o => o.lectureId !== lectureId));
     },
+
+    /**
+     * Clears all lecture logs, overrides, extra classes, rescheduled classes,
+     * attendance credits, and manual subject adjustments.
+     */
+    clearAllLogs() {
+      writeJson(ATTENDANCE_KEY, []);
+      writeJson('extra_classes', []);
+      writeJson('rescheduled_classes', []);
+      writeJson('attendance_credits', []);
+
+      // Reset manual subject adjustments
+      const subjects = (parsed.onboarding.subjects || []).map(s => ({
+        ...s,
+        manualAttendedAdjustment: 0,
+        manualTotalAdjustment: 0,
+      }));
+
+      writeJson(ONBOARDING_KEY, {
+        ...parsed.onboarding,
+        subjects,
+      });
+    },
   };
 }
 
